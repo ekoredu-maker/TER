@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1f4b99" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<link rel="manifest" href="./manifest.json" />
+<title>개인출장·여비정산 관리 프로그램 v1.1</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="./assets/css/style.css" />
+<link rel="stylesheet" href="./assets/css/print.css" />
+</head>
+<body>
+<header>
+  <h1>개인출장 · 여비정산 관리 프로그램 <span style="font-size:14px;font-weight:700;opacity:.92;vertical-align:middle">v1.1 서식정밀화판</span></h1>
+  <div class="sub">
+    출장신청 데이터 업로드 → 여비정산서 작성/출력 → 영수증 첨부 → 월별 스케줄·정산 현황 관리까지 한 화면에서 처리하도록 구성했습니다. 이번 판은 GitHub Pages + PWA 배포를 고려해 앱 설치 흐름을 보강하고, 여비정산 신청서 출력물을 붙임서식에 최대한 가깝게 재구성한 서식정밀화 버전입니다.
+  </div>
+</header>
+
+<div class="app">
+  <div class="topbar">
+    <div class="pill">무설치 브라우저 실행</div>
+    <div class="pill">브라우저 로컬 저장</div>
+    <div class="pill">엑셀 업로드 지원</div>
+    <div class="pill">영수증 이미지·PDF 첨부</div>
+    <div class="pill">ICS 일정 내보내기</div>
+    <div class="pill">GitHub Pages + PWA 배포 대응</div>
+    <div class="pill status-ok">v1.2 최소리팩터링 안정판</div>
+    <div class="pill status-empty" id="saveStatePill">저장상태: 저장된 변경 없음</div>
+    <div class="pill" id="lastSavedPill">마지막 저장: -</div>
+    <div class="pill" id="activeTripPill">선택 출장: 없음</div>
+    <div class="topbar-actions">
+      <button class="btn secondary" id="helpOpenBtn" type="button">사용방법</button>
+      <button class="btn teal" id="installPwaBtn" type="button" hidden>앱 설치</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <section id="tab-dashboard" class="tab-panel active"></section>
+  <section id="tab-import" class="tab-panel"></section>
+  <section id="tab-settlement" class="tab-panel"></section>
+  <section id="tab-calendar" class="tab-panel"></section>
+  <section id="tab-receipts" class="tab-panel"></section>
+  <section id="tab-backup" class="tab-panel"></section>
+</div>
+
+<div class="app-footer"><div class="inner">저작자인 박주가리교감@2026 | 개인여비정산 프로그램</div></div>
+
+<div id="printArea"></div>
+
+<div class="modal-backdrop hidden" id="helpModal" aria-hidden="true">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>사용방법 · v1.1 서식정밀화판</h2>
+      <button class="btn secondary" id="helpCloseTopBtn" type="button">닫기</button>
+    </div>
+    <div class="manual-grid">
+      <div class="manual-box">
+        <h3>기본 사용 순서</h3>
+        <ol>
+          <li><b>출장 가져오기</b> 탭에서 출장 목록 그리드 엑셀을 불러옵니다.</li>
+          <li><b>여비정산</b> 탭에서 출장 1건을 선택하고 소속·기간·경비를 확인합니다.</li>
+          <li><b>이동구분</b>에서 자가용 또는 대중교통을 먼저 고르고, 그다음 왕복/편도를 선택합니다. 왕복이면 자동으로 2행이 생성됩니다.</li>
+          <li><b>정산 저장</b> 후 <b>영수증 관리</b>로 이동하여 이미지 또는 PDF를 첨부합니다.</li>
+          <li><b>정산서·영수증 출력(A4)</b>으로 제출용 인쇄물을 만듭니다.</li>
+          <li>GitHub Pages에 올린 뒤에는 <b>앱 설치</b> 버튼이나 브라우저 메뉴를 이용해 PWA처럼 바로가기 설치가 가능합니다.</li>
+        </ol>
+      </div>
+      <div class="manual-box">
+        <h3>화면에서 꼭 볼 표시</h3>
+        <ul>
+          <li><b>저장상태</b>: 입력 중인지, 저장이 끝났는지 상단에 표시됩니다.</li>
+          <li><b>마지막 저장</b>: 언제 저장했는지 시간까지 확인할 수 있습니다.</li>
+          <li><b>선택 출장</b>: 현재 어떤 출장건을 편집 중인지 보여줍니다.</li>
+          <li>저장하지 않은 상태에서 다른 출장건이나 다른 탭으로 이동하면 경고가 뜹니다.</li>
+        </ul>
+      </div>
+      <div class="manual-box">
+        <h3>인쇄 전 점검</h3>
+        <ul>
+          <li>용지는 <b>A4</b>, 방향은 <b>세로</b>로 둡니다.</li>
+          <li>자가용 경로를 썼다면 출발지·도착지가 비어 있지 않은지 확인합니다.</li>
+          <li>영수증은 이미지와 PDF 모두 가능하지만, 큰 PDF는 저장 시간이 조금 더 걸릴 수 있고, 브라우저 특성상 인쇄 결과가 다를 수 있습니다.</li>
+          <li>출력 전에 한 번 더 <b>정산 저장</b>을 눌러 최신 입력값을 반영하는 것이 안전합니다.</li>
+        </ul>
+      </div>
+      <div class="manual-box">
+        <h3>자주 있는 문제</h3>
+        <ul>
+          <li><b>입력값이 안 보일 때</b>: 저장 후 다시 미리보기를 열어 보세요.</li>
+          <li><b>다른 PC로 옮길 때</b>: 백업/복원 탭에서 JSON 백업 파일을 함께 보관하세요.</li>
+          <li><b>영수증이 안 보일 때</b>: 해당 정산서를 먼저 선택했는지 확인하세요.</li>
+          <li><b>인쇄가 맞지 않을 때</b>: 브라우저 인쇄창에서 A4와 기본 배율을 확인하세요.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="helpCloseBtn" type="button">확인</button>
+    </div>
+  </div>
+</div>
+
+<script src="./assets/js/app.js"></script>
+</body>
+</html>
