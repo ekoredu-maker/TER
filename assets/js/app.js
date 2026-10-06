@@ -277,7 +277,14 @@ const DB_NAME = 'trip_settlement_manager_v1';
     });
   }
 
+  function useHybridStore(storeName){
+    return !!(window.HybridAPI && window.HybridAPI.authenticated && storeName !== 'receipts');
+  }
+
   async function dbGetAll(storeName){
+    if(useHybridStore(storeName)){
+      return window.HybridAPI.listStore(storeName);
+    }
     return new Promise((resolve, reject) => {
       const tx = state.db.transaction(storeName, 'readonly');
       const req = tx.objectStore(storeName).getAll();
@@ -285,7 +292,12 @@ const DB_NAME = 'trip_settlement_manager_v1';
       req.onerror = () => reject(req.error);
     });
   }
+
   async function dbPut(storeName, value){
+    if(useHybridStore(storeName)){
+      await window.HybridAPI.putStore(storeName, value);
+      return;
+    }
     return new Promise((resolve, reject) => {
       const tx = state.db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).put(value);
@@ -293,9 +305,14 @@ const DB_NAME = 'trip_settlement_manager_v1';
       tx.onerror = () => reject(tx.error);
     });
   }
+
   async function dbPutBulk(storeName, values){
     const items = Array.isArray(values) ? values.filter(Boolean) : [];
     if(!items.length) return;
+    if(useHybridStore(storeName)){
+      await window.HybridAPI.putBulk(storeName, items);
+      return;
+    }
     return new Promise((resolve, reject) => {
       const tx = state.db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
@@ -305,7 +322,12 @@ const DB_NAME = 'trip_settlement_manager_v1';
       tx.onabort = () => reject(tx.error || new Error('bulk put aborted'));
     });
   }
+
   async function dbDelete(storeName, id){
+    if(useHybridStore(storeName)){
+      await window.HybridAPI.deleteStore(storeName, id);
+      return;
+    }
     return new Promise((resolve, reject) => {
       const tx = state.db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).delete(id);
@@ -313,7 +335,12 @@ const DB_NAME = 'trip_settlement_manager_v1';
       tx.onerror = () => reject(tx.error);
     });
   }
+
   async function dbClear(storeName){
+    if(useHybridStore(storeName)){
+      await window.HybridAPI.clearStore(storeName);
+      return;
+    }
     return new Promise((resolve, reject) => {
       const tx = state.db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).clear();
@@ -1088,6 +1115,22 @@ const DB_NAME = 'trip_settlement_manager_v1';
   }
 
   async function parseTripExcel(file){
+    if(window.HybridAPI && window.HybridAPI.authenticated){
+      state.importWarnings = [];
+      try{
+        const parsed = await window.HybridAPI.parseExcel(file);
+        state.importPreview = parsed.preview || [];
+        state.importWarnings = parsed.warnings || [];
+        if(!state.importPreview.length && !state.importWarnings.length){
+          state.importWarnings.push('인식된 출장 행이 없습니다.');
+        }
+      }catch(err){
+        state.importPreview = [];
+        state.importWarnings = ['Python Excel 분석 중 오류: ' + (err?.message || String(err))];
+      }
+      renderImport();
+      return;
+    }
     if(typeof XLSX === 'undefined'){
       alert('엑셀 파서가 아직 준비되지 않았습니다. 인터넷 연결 후 다시 시도해 주세요.');
       return;
@@ -2456,6 +2499,9 @@ const DB_NAME = 'trip_settlement_manager_v1';
   }
 
   async function init(){
+    if(window.HybridAPI && typeof window.HybridAPI.bootstrap === 'function'){
+      try{ await window.HybridAPI.bootstrap(); }catch(err){ console.warn('hybrid bootstrap failed', err); }
+    }
     await loadState();
     state.ui.lastSavedAt = [...state.settlements].sort((a,b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0]?.updatedAt || '';
     render();
