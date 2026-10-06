@@ -1,20 +1,34 @@
-개인출장·여비정산 관리 프로그램 v1.2 최소리팩터링 안정판
+개인출장·여비정산 관리 프로그램 Hybrid v2 개발 브랜치
 
-이 패키지는 기존에 동작하던 단일 HTML 파일을 기준으로,
-HTML / CSS / JS만 분리한 최소 리팩터링판입니다.
+이 브랜치는 기존 GitHub Pages 웹판(main)을 보존한 상태에서
+HTML/JavaScript UI + Python 처리 엔진 + Windows 포터블 실행기 구조로
+마이그레이션하기 위한 개발 브랜치입니다.
 
-구성:
-- index.html
-- assets/css/style.css
-- assets/css/print.css
-- assets/js/app.js
-- manifest.json
-- sw.js
+현재 구현
+- 127.0.0.1 빈 포트 자동 선택 로컬 서버
+- 실행별 접근 토큰
+- KST(+09:00) 고정
+- Python openpyxl 출장목록 분석
+- SQLite trips / settlements / receipts / settings 저장
+- 정산 필수값 검증
+- 영수증·서명 실제 파일 저장 서비스
+- ZIP 백업/복원 서비스
+- Windows 실행 스크립트
+- backend 회귀테스트
+- HWPX 기준양식 운영 원칙
 
-테스트 방법:
-1) 폴더에서 index.html을 직접 열어 기본 화면이 보이는지 확인
-2) GitHub Pages 배포 시에는 manifest/sw.js가 같이 동작
+아직 main에 합치지 않는 항목
+- 기존 프론트엔드와 Python API 완전 연결
+- 실제 기준 HWPX 바이너리 포함 및 최종 출력 회귀검증
+- HWPX 서명 이미지 삽입
+- Python 미설치 PC용 runtime 포함 포터블 배포
+- 최종 Windows launcher.exe
 
-주의:
-- 엑셀 업로드용 xlsx 라이브러리는 CDN을 사용하므로 첫 실행은 온라인이 안전합니다.
-- file:// 실행에서는 서비스워커가 자동 등록되지 않습니다.
+개발 원칙
+1. main은 현재 안정 웹판으로 유지
+2. hybrid-v2에서만 구조 변경
+3. 기존 정상 기능·출력을 기준선으로 회귀검증
+4. 원본 HWPX는 절대 덮어쓰지 않음
+5. 검증된 버전만 GitHub Release로 배포
+
+Copyright 2026@박주가리교감 All rights reserved.
