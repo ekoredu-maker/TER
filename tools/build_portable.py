@@ -248,6 +248,22 @@ def main() -> int:
     install_runtime(target, embed_zip)
     write_windows_launcher(target)
 
+    (target / "먼저읽기.txt").write_text(
+        "개인출장·여비정산 Hybrid v2.0-RC1.2\n\n"
+        "1. 압축을 완전히 해제합니다.\n"
+        "2. RUN.cmd를 더블클릭합니다.\n"
+        "3. 첫 실행 때 바탕화면에 '개인출장 여비정산' 바로가기를 자동 생성합니다.\n"
+        "   자동 생성되지 않으면 '바탕화면_바로가기_만들기.cmd'를 실행합니다.\n"
+        "4. 개인 설정에서 여비정산서(양식).hwpx를 기준양식으로 등록합니다.\n\n"
+        "업무기준\n"
+        "- 관내출장: 특별한 사유가 없는 경우 기본 정산불요\n"
+        "- 관외출장: 정산대상 중심\n"
+        "- 관내를 예외적으로 정산하는 경우 예외 정산 사유 입력\n"
+        "- 여비부지급/정산불요 출장: 관내·관외와 관계없이 정산불요\n\n"
+        "Copyright 2026@박주가리교감 All rights reserved.\n",
+        encoding="utf-8-sig",
+    )
+
     zip_path = make_zip(target)
     print("PORTABLE_BUILD_OK")
     print(f"ZIP_SIZE={zip_path.stat().st_size}")
