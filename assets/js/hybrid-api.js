@@ -205,6 +205,38 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  async function createBackup(){
+    requireHybrid();
+    const data = await jsonFetch('/api/backup/create', {
+      method:'POST',
+      body:'{}'
+    });
+    if(data.dataBase64){
+      downloadBase64(data.dataBase64, 'application/zip', data.filename || '출장정산백업.zip');
+    }
+    return data;
+  }
+
+  async function restoreBackup(file){
+    requireHybrid();
+    const buffer = await file.arrayBuffer();
+    return jsonFetch('/api/backup/restore', {
+      method:'POST',
+      body:JSON.stringify({
+        filename:file.name,
+        dataBase64:arrayBufferToBase64(buffer)
+      })
+    });
+  }
+
+  async function resetAll(){
+    requireHybrid();
+    return jsonFetch('/api/reset', {
+      method:'POST',
+      body:'{}'
+    });
+  }
+
   async function generateHwpx(settlement, receiptCount=0, kmRate=200){
     requireHybrid();
     const data = await jsonFetch('/api/hwpx/generate', {
@@ -253,6 +285,9 @@
     uploadSignature,
     signatureUrl,
     deleteSignature,
+    createBackup,
+    restoreBackup,
+    resetAll,
     generateHwpx,
     validateSettlement,
     shutdown
