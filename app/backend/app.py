@@ -106,6 +106,22 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json({"ok": False, "error": "forbidden"}, HTTPStatus.FORBIDDEN)
         return False
 
+    def _query_authorized(self, parsed) -> bool:
+        supplied = (parse_qs(parsed.query).get("token") or [""])[0]
+        return bool(supplied) and secrets.compare_digest(supplied, APP_TOKEN)
+
+    def _send_file(self, file_path: Path, mime_type: str, download_name: str = "") -> None:
+        data = Path(file_path).read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime_type or "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=60")
+        if download_name:
+            safe = safe_name(download_name)
+            self.send_header("Content-Disposition", f'inline; filename="{safe}"')
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -127,6 +143,43 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "forbidden"}, HTTPStatus.FORBIDDEN)
                 return
             self._send_json({"ok": True, "token": APP_TOKEN, "templateReady": TEMPLATE_PATH.is_file()})
+            return
+
+        if path == "/api/receipt/file":
+            if not self._query_authorized(parsed):
+                self._send_json({"ok": False, "error": "forbidden"}, HTTPStatus.FORBIDDEN)
+                return
+            item_id = (parse_qs(parsed.query).get("id") or [""])[0]
+            item = STORE.get("receipts", item_id)
+            if not item:
+                self._send_json({"ok": False, "error": "영수증 정보를 찾을 수 없습니다."}, HTTPStatus.NOT_FOUND)
+                return
+            file_path = receipt_path(RECEIPTS_DIR, item)
+            if not file_path.is_file():
+                self._send_json({"ok": False, "error": "영수증 파일을 찾을 수 없습니다."}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_file(
+                file_path,
+                str(item.get("mimeType") or "application/octet-stream"),
+                str(item.get("fileName") or file_path.name),
+            )
+            return
+
+        if path == "/api/signature/file":
+            if not self._query_authorized(parsed):
+                self._send_json({"ok": False, "error": "forbidden"}, HTTPStatus.FORBIDDEN)
+                return
+            settings = _settings()
+            meta = settings.get("signatureFile") or {}
+            file_path = signature_path(SIGNATURE_DIR, meta) if meta else None
+            if not file_path or not file_path.is_file():
+                self._send_json({"ok": False, "error": "서명 파일을 찾을 수 없습니다."}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_file(
+                file_path,
+                str(meta.get("mimeType") or "image/png"),
+                str(meta.get("fileName") or file_path.name),
+            )
             return
 
         if path.startswith("/api/store/"):
