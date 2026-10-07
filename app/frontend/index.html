@@ -2472,220 +2472,175 @@
     `;
   }
   function buildSettlementFormPage(settlement){
-    normalizeSettlementShape(settlement);
-    const trip = getTrip(settlement.tripId) || {};
-    const weekdayText = (v) => {
-      if(!v) return '';
-      const d = new Date(`${v}T00:00:00`);
-      if(Number.isNaN(d.getTime())) return '';
-      return `(${['일','월','화','수','목','금','토'][d.getDay()]})`;
-    };
-    const blankPrivate = () => ({date:'',from:'',to:'',km:'',driver:'',remark:'',fuel:'',toll:'',parking:'',other:'',manualAmount:''});
-    const blankPublic = () => ({date:'',transport:'',from:'',to:'',grade:'',amount:'',remark:''});
-    const privateRows = (settlement.privateCars || []).slice(0,4).map(r => ({...blankPrivate(), ...r}));
-    const publicRows = (settlement.publicTransport || []).slice(0,5).map(r => ({...blankPublic(), ...r}));
-    while(privateRows.length < 4) privateRows.push(blankPrivate());
-    while(publicRows.length < 5) publicRows.push(blankPublic());
+  normalizeSettlementShape(settlement);
+  const trip = getTrip(settlement.tripId) || {};
+  const blankPrivate = () => ({date:'',from:'',to:'',km:'',driver:'',remark:'',fuel:'',toll:'',parking:'',other:'',manualAmount:''});
+  const blankPublic = () => ({date:'',transport:'',from:'',to:'',grade:'',amount:'',remark:''});
+  const privateRows = (settlement.privateCars || []).slice(0,4).map(r => ({...blankPrivate(), ...r}));
+  const publicRows = (settlement.publicTransport || []).slice(0,4).map(r => ({...blankPublic(), ...r}));
+  while(privateRows.length < 4) privateRows.push(blankPrivate());
+  while(publicRows.length < 4) publicRows.push(blankPublic());
 
-    const displayMoney = (v) => {
-      const n = asNum(v);
-      return n ? money(n) : '';
-    };
-    const routeModeTag = [
-      settlement.movementMode === 'private' ? '자가용' : settlement.movementMode === 'public' ? '대중교통' : '',
-      settlement.routeType === 'round' ? '왕복' : settlement.routeType === 'oneway' ? '편도' : ''
-    ].filter(Boolean).join(' / ');
-    const receiptCount = receiptsBySettlement(settlement.id).length;
-    let receiptLine = '2. 영수증 1부.  끝.';
-    if(settlement.receiptMode === 'attached') receiptLine = `2. 영수증 ${receiptCount || 1}부.  끝.`;
-    if(settlement.receiptMode === 'none') receiptLine = '2. 영수증 없음.  끝.';
-    if(settlement.receiptMode === 'separate') receiptLine = '2. 영수증 별도 제출.  끝.';
-    const signHtml = state.settings.signatureFile
-      ? `<img class="xlsx-sign-image" src="${escapeAttr(signatureContentUrl())}" alt="등록 서명">`
-      : '(서명)';
-    const submitDate = compactDate(settlement.settlementDate || '');
-    const startDateText = settlement.startDate ? `${ymdToKorean(settlement.startDate)}${weekdayText(settlement.startDate)}` : '';
-    const endDateText = settlement.endDate ? `${ymdToKorean(settlement.endDate)}${weekdayText(settlement.endDate)}` : startDateText;
-    const mealText = mealProvidedLabel(settlement) || '';
-    const privateBody = privateRows.map((r, idx) => {
-      const active = [r.date,r.from,r.to,r.km,r.driver,r.remark,r.manualAmount,r.fuel,r.toll,r.parking,r.other].some(v => String(v || '').trim());
-      return `
-        <tr>
-          ${idx === 0 ? '<td class="xlsx-side xlsx-transport-side" rowspan="9" style="width:4.5%">운<br>임</td><td class="xlsx-side xlsx-transport-stack" rowspan="4" style="width:5.5%">자<br>가<br>용</td>' : ''}
-          <td class="xlsx-center" style="width:11%">${escapeHtml(ymdToKorean(r.date || ''))}</td>
-          <td class="xlsx-fill xlsx-route" style="width:17.5%">${nl2br(r.from || '')}</td>
-          <td class="xlsx-fill xlsx-route" style="width:17.5%">${nl2br(r.to || '')}</td>
-          <td class="xlsx-center" style="width:11%">${escapeHtml(r.km || '')}</td>
-          <td class="xlsx-center" style="width:14%">${active ? escapeHtml(displayMoney(calcPrivateCarRow(r))) : ''}</td>
-          <td class="xlsx-center" style="width:10%">${escapeHtml(r.driver || settlement.name || trip.name || '')}</td>
-          <td class="xlsx-center" style="width:8.5%">${escapeHtml(r.remark || '')}</td>
-        </tr>`;
-    }).join('');
-    const publicBody = publicRows.map((r, idx) => {
-      const amountNote = [displayMoney(r.amount), r.remark].filter(Boolean).join(' / ');
-      return `
-        <tr>
-          ${idx === 0 ? '<td class="xlsx-side xlsx-transport-stack" rowspan="5" style="width:5.5%">대<br>중<br>교<br>통</td>' : ''}
-          <td class="xlsx-center" style="width:11%">${escapeHtml(ymdToKorean(r.date || ''))}</td>
-          <td class="xlsx-center" style="width:17.5%">${escapeHtml(r.transport || '')}</td>
-          <td class="xlsx-center" style="width:17.5%">${escapeHtml(r.from || '')}</td>
-          <td class="xlsx-center" style="width:17.5%">${escapeHtml(r.to || '')}</td>
-          <td class="xlsx-center" style="width:14%">${escapeHtml(r.grade || '')}</td>
-          <td class="xlsx-center xlsx-small" style="width:18.5%">${escapeHtml(amountNote)}</td>
-        </tr>`;
-    }).join('');
+  const displayMoney = (v) => {
+    const n = asNum(v);
+    return n ? money(n) : '';
+  };
+  const md = (v) => {
+    const s = String(v || '');
+    const m = s.match(/^\d{4}-(\d{2})-(\d{2})$/);
+    return m ? `${Number(m[1])}. ${Number(m[2])}.` : s;
+  };
+  const dateKr = (v) => {
+    const s = String(v || '');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${Number(m[1])}년 ${Number(m[2])}월 ${Number(m[3])}일` : s;
+  };
+  const tripPeriod = (() => {
+    const left = [dateKr(settlement.startDate), settlement.startTime || ''].filter(Boolean).join(' ');
+    const sameDay = settlement.endDate === settlement.startDate || !settlement.endDate;
+    const right = sameDay
+      ? (settlement.endTime || '')
+      : [dateKr(settlement.endDate), settlement.endTime || ''].filter(Boolean).join(' ');
+    return [left,right].filter(Boolean).join(' ~ ');
+  })();
 
-    return `
-      <div class="print-page settlement-sheet">
-        <div class="xlsx-sheet">
-          <div class="xlsx-title">여비정산 신청서</div>
-          <div class="xlsx-sheet-box">
-            <table class="xlsx-form table-top">
-              <colgroup>
-                <col style="width:10%"><col style="width:25%"><col style="width:10%"><col style="width:23%"><col style="width:8%"><col style="width:24%">
-              </colgroup>
-              <tr>
-                <td class="xlsx-label">소 속</td>
-                <td class="xlsx-center xlsx-big">${escapeHtml(settlement.dept || '')}</td>
-                <td class="xlsx-label">직급</td>
-                <td class="xlsx-center xlsx-fill xlsx-big">${escapeHtml(settlement.position || '')}</td>
-                <td class="xlsx-label">성 명</td>
-                <td class="xlsx-center xlsx-fill xlsx-big">${escapeHtml(settlement.name || trip.name || '')}</td>
-              </tr>
-              <tr>
-                <td class="xlsx-label">복수출장자</td>
-                <td colspan="5">${escapeHtml(settlement.coTravelers || '')}</td>
-              </tr>
-            </table>
+  const receiptCount = receiptsBySettlement(settlement.id).length;
+  let receiptLine = '2. 영수증 1부.  끝.';
+  if(settlement.receiptMode === 'attached') receiptLine = `2. 영수증 ${receiptCount || 1}부.  끝.`;
+  if(settlement.receiptMode === 'none') receiptLine = '2. 영수증 없음.  끝.';
+  if(settlement.receiptMode === 'separate') receiptLine = '2. 영수증 별도 제출.  끝.';
 
-            <table class="xlsx-form">
-              <colgroup>
-                <col style="width:10%"><col style="width:13%"><col style="width:18%"><col style="width:4.5%"><col style="width:18%"><col style="width:36.5%">
-              </colgroup>
-              <tr>
-                <td class="xlsx-side xlsx-big" rowspan="4">출 장<br>일 정</td>
-                <td class="xlsx-label">출장일시</td>
-                <td class="xlsx-fill xlsx-date-time">${escapeHtml(startDateText)} ${escapeHtml(settlement.startTime || '')}</td>
-                <td class="xlsx-center xlsx-big">~</td>
-                <td class="xlsx-fill xlsx-date-time">${escapeHtml(endDateText)} ${escapeHtml(settlement.endTime || '')}</td>
-                <td></td>
-              </tr>
-              <tr>
-                <td class="xlsx-label">출 장 지</td>
-                <td class="xlsx-fill xlsx-purpose" colspan="4">${escapeHtml(settlement.destination || '')}${routeModeTag ? ` <span class="xlsx-small">(${escapeHtml(routeModeTag)})</span>` : ''}</td>
-              </tr>
-              <tr>
-                <td class="xlsx-label">출장목적</td>
-                <td class="xlsx-fill xlsx-purpose" colspan="4">${escapeHtml(settlement.purpose || '')}</td>
-              </tr>
-              <tr>
-                <td class="xlsx-label">식사제공여부</td>
-                <td class="xlsx-fill xlsx-purpose" colspan="4">${escapeHtml(mealText)}</td>
-              </tr>
-            </table>
+  const signHtml = state.settings.signatureFile
+    ? `<img class="xlsx-sign-image" src="${escapeAttr(signatureContentUrl())}" alt="등록 서명">`
+    : '(서명)';
+  const submitDate = dateKr(settlement.settlementDate || '');
+  const mealText = mealProvidedLabel(settlement) || '';
 
-            <table class="xlsx-form">
-              <colgroup>
-                <col style="width:10%"><col style="width:18%"><col style="width:22%"><col style="width:18%"><col style="width:20%"><col style="width:12%">
-              </colgroup>
-              <tr>
-                <td class="xlsx-side xlsx-big" rowspan="3">숙 박 비</td>
-                <td class="xlsx-label">상한액 또는<br>지급받은 금액</td>
-                <td class="xlsx-center">${escapeHtml(displayMoney(settlement.lodgingAdvance))}</td>
-                <td class="xlsx-label">실 제<br>소요액</td>
-                <td class="xlsx-center">${escapeHtml(displayMoney(settlement.lodgingActual))}</td>
-                <td class="xlsx-label">초과지출<br>사 유</td>
-              </tr>
-              <tr>
-                <td class="xlsx-label">친지 집 등 숙박</td>
-                <td class="xlsx-center">${settlement.lodgingFriendNights ? `(${escapeHtml(String(settlement.lodgingFriendNights))})박` : '(    )박'}</td>
-                <td class="xlsx-label">공동숙박</td>
-                <td class="xlsx-center">${settlement.lodgingSharedNights ? `(${escapeHtml(String(settlement.lodgingSharedNights))})박` : '(    )박'}</td>
-                <td class="xlsx-label">공동숙박<br>추가지급</td>
-              </tr>
-              <tr>
-                <td class="xlsx-center" colspan="4">${escapeHtml(settlement.lodgingOverReason || '')}</td>
-                <td class="xlsx-label">신청자</td>
-              </tr>
-            </table>
+  const privateTotal = privateRows.reduce((sum,row) => {
+    const active = [row.date,row.from,row.to,row.km,row.driver,row.remark,row.manualAmount,row.fuel,row.toll,row.parking,row.other].some(v => String(v || '').trim());
+    return sum + (active ? calcPrivateCarRow(row) : 0);
+  },0);
+  const privateDrivers = [...new Set(privateRows.map(r => String(r.driver || '').trim()).filter(Boolean))].join(', ');
+  const privateRemarks = [...new Set(privateRows.map(r => String(r.remark || '').trim()).filter(Boolean))].join(', ');
 
-            <table class="xlsx-form">
-              <colgroup>
-                <col style="width:4.5%"><col style="width:5.5%"><col style="width:11%"><col style="width:17.5%"><col style="width:17.5%"><col style="width:11%"><col style="width:14%"><col style="width:10%"><col style="width:8.5%">
-              </colgroup>
-              <tr>
-                <td class="xlsx-side xlsx-big" rowspan="9">운<br>임</td>
-                <td class="xlsx-side xlsx-transport-stack" rowspan="4">자<br>가<br>용</td>
-                <td class="xlsx-label">일 자</td>
-                <td class="xlsx-label">출발지</td>
-                <td class="xlsx-label">도착지</td>
-                <td class="xlsx-label">거리(km)</td>
-                <td class="xlsx-label">금액</td>
-                <td class="xlsx-label">운전자<br>성명</td>
-                <td class="xlsx-label">비고</td>
-              </tr>
-              ${privateRows.map((r) => {
-                const active = [r.date,r.from,r.to,r.km,r.driver,r.remark,r.manualAmount,r.fuel,r.toll,r.parking,r.other].some(v => String(v || '').trim());
-                return `
-                <tr>
-                  <td class="xlsx-center">${escapeHtml(ymdToKorean(r.date || ''))}</td>
-                  <td class="xlsx-fill xlsx-route">${nl2br(r.from || '')}</td>
-                  <td class="xlsx-fill xlsx-route">${nl2br(r.to || '')}</td>
-                  <td class="xlsx-center">${escapeHtml(r.km || '')}</td>
-                  <td class="xlsx-center">${active ? escapeHtml(displayMoney(calcPrivateCarRow(r))) : ''}</td>
-                  <td class="xlsx-center">${escapeHtml(r.driver || '')}</td>
-                  <td class="xlsx-center">${escapeHtml(r.remark || '')}</td>
-                </tr>`;
-              }).join('')}
-              <tr>
-                <td class="xlsx-side xlsx-transport-stack" rowspan="5">대<br>중<br>교<br>통</td>
-                <td class="xlsx-label">일 자</td>
-                <td class="xlsx-label">교통편</td>
-                <td class="xlsx-label">출발지</td>
-                <td class="xlsx-label">도착지</td>
-                <td class="xlsx-label" colspan="2">등 급</td>
-                <td class="xlsx-label">금액·비고</td>
-              </tr>
-              ${publicBody}
-            </table>
+  const cols = Array.from({length:19}, () => '<col style="width:5.263%">').join('');
+  const privateData = privateRows.map((r,idx) => `
+    <tr>
+      <td class="xlsx-center">${escapeHtml(md(r.date))}</td>
+      <td class="xlsx-fill xlsx-route" colspan="2">${nl2br(r.from || '')}</td>
+      <td class="xlsx-fill xlsx-route" colspan="3">${nl2br(r.to || '')}</td>
+      <td class="xlsx-center" colspan="3">${escapeHtml(r.km || '')}</td>
+      ${idx === 0 ? `<td class="xlsx-center" colspan="3" rowspan="4">${escapeHtml(displayMoney(privateTotal))}</td>
+      <td class="xlsx-center" colspan="4" rowspan="4">${escapeHtml(privateDrivers)}</td>
+      <td class="xlsx-center" rowspan="4">${escapeHtml(privateRemarks)}</td>` : ''}
+    </tr>`).join('');
 
-            <table class="xlsx-form">
-              <tr>
-                <td class="xlsx-note-box">「공무원여비규정」 제16조 제1항 및 제2항의 규정에 의하여 관계서류를 첨부하여<br>위와 같이 여비의 정산을 신청합니다.</td>
-              </tr>
-            </table>
+  const publicData = publicRows.map(r => `
+    <tr>
+      <td class="xlsx-center">${escapeHtml(md(r.date))}</td>
+      <td class="xlsx-center" colspan="2">${escapeHtml(r.transport || '')}</td>
+      <td class="xlsx-fill xlsx-route" colspan="4">${nl2br(r.from || '')}</td>
+      <td class="xlsx-fill xlsx-route" colspan="3">${nl2br(r.to || '')}</td>
+      <td class="xlsx-center" colspan="4">${escapeHtml(r.grade || '')}</td>
+      <td class="xlsx-center" colspan="3">${escapeHtml(displayMoney(r.amount))}</td>
+    </tr>`).join('');
 
-            <table class="xlsx-form">
-              <colgroup><col style="width:10%"><col style="width:90%"></colgroup>
-              <tr>
-                <td class="xlsx-label xlsx-big" rowspan="2">첨 부</td>
-                <td class="xlsx-attach-cell">1. 출장신청서 1부.</td>
-              </tr>
-              <tr>
-                <td class="xlsx-attach-cell">${escapeHtml(receiptLine)}</td>
-              </tr>
-            </table>
+  return `
+    <div class="print-page settlement-sheet">
+      <div class="xlsx-sheet">
+        <div class="xlsx-title">여비정산 신청서</div>
+        <div class="xlsx-sheet-box">
+          <table class="xlsx-form table-top">
+            <colgroup>${cols}</colgroup>
+            <tr>
+              <td class="xlsx-label" colspan="2">소&nbsp;&nbsp;&nbsp;&nbsp;속</td>
+              <td class="xlsx-center xlsx-big" colspan="2">${escapeHtml(settlement.dept || '')}</td>
+              <td class="xlsx-label" colspan="3">직급</td>
+              <td class="xlsx-center xlsx-fill xlsx-big" colspan="5">${escapeHtml(settlement.position || '')}</td>
+              <td class="xlsx-label" colspan="3">성&nbsp;&nbsp;명</td>
+              <td class="xlsx-center xlsx-fill xlsx-big" colspan="4">${escapeHtml(settlement.name || trip.name || '')}</td>
+            </tr>
+            <tr>
+              <td class="xlsx-label" colspan="2">복수출장자</td>
+              <td colspan="17">${escapeHtml(settlement.coTravelers || '')}</td>
+            </tr>
 
-            <table class="xlsx-form xlsx-date-row">
-              <tr><td>${escapeHtml(submitDate)}</td></tr>
-            </table>
+            <tr>
+              <td class="xlsx-side xlsx-big" colspan="2" rowspan="4">출&nbsp;&nbsp;&nbsp;&nbsp;장<br>일&nbsp;&nbsp;&nbsp;&nbsp;정</td>
+              <td class="xlsx-label">출장일시</td>
+              <td class="xlsx-fill xlsx-purpose" colspan="16">${escapeHtml(tripPeriod)}</td>
+            </tr>
+            <tr>
+              <td class="xlsx-label">출 장 지</td>
+              <td class="xlsx-fill xlsx-purpose" colspan="16">${escapeHtml(settlement.destination || '')}</td>
+            </tr>
+            <tr>
+              <td class="xlsx-label">출장목적</td>
+              <td class="xlsx-fill xlsx-purpose" colspan="16">${escapeHtml(settlement.purpose || '')}</td>
+            </tr>
+            <tr>
+              <td class="xlsx-label">식사제공여부</td>
+              <td class="xlsx-fill xlsx-purpose" colspan="16">${escapeHtml(mealText)}</td>
+            </tr>
 
-            <table class="xlsx-form table-bottom xlsx-sign-row">
-              <colgroup><col style="width:28%"><col style="width:12%"><col style="width:10%"><col style="width:16%"><col style="width:14%"><col style="width:20%"></colgroup>
-              <tr>
-                <td></td>
-                <td>신청인</td>
-                <td>성명</td>
-                <td>${escapeHtml(settlement.name || trip.name || '')}</td>
-                <td>${signHtml}</td>
-                <td></td>
-              </tr>
-            </table>
-          </div>
+            <tr>
+              <td class="xlsx-side xlsx-big" colspan="2" rowspan="2">숙 박 비</td>
+              <td class="xlsx-label">상한액 또는<br>지급받은 금액</td>
+              <td class="xlsx-center" colspan="3">${escapeHtml(displayMoney(settlement.lodgingAdvance))}</td>
+              <td class="xlsx-label" colspan="4">실&nbsp;&nbsp;제<br>소요액</td>
+              <td class="xlsx-center" colspan="3">${escapeHtml(displayMoney(settlement.lodgingActual))}</td>
+              <td class="xlsx-label" colspan="4">초과지출<br>사&nbsp;&nbsp;&nbsp;&nbsp;유</td>
+              <td class="xlsx-center" colspan="2">${escapeHtml(settlement.lodgingOverReason || '')}</td>
+            </tr>
+            <tr>
+              <td class="xlsx-label">친지 집 등<br>숙박</td>
+              <td class="xlsx-center" colspan="3">${settlement.lodgingFriendNights ? `(${escapeHtml(String(settlement.lodgingFriendNights))})박` : '(  )박'}</td>
+              <td class="xlsx-label" colspan="4">공동숙박</td>
+              <td class="xlsx-center" colspan="3">${settlement.lodgingSharedNights ? `(${escapeHtml(String(settlement.lodgingSharedNights))})박` : '(  )박'}</td>
+              <td class="xlsx-label" colspan="4">공동숙박<br>추가지급<br>신청자</td>
+              <td class="xlsx-center" colspan="2">${escapeHtml(settlement.lodgingSharedApplicant || '')}</td>
+            </tr>
+
+            <tr>
+              <td class="xlsx-side xlsx-big" rowspan="10">운<br>임</td>
+              <td class="xlsx-side xlsx-transport-stack" rowspan="5">자<br>가<br>용</td>
+              <td class="xlsx-label">일 자</td>
+              <td class="xlsx-label" colspan="2">출발지</td>
+              <td class="xlsx-label" colspan="3">도착지</td>
+              <td class="xlsx-label" colspan="3">거리(km)</td>
+              <td class="xlsx-label" colspan="3">금액</td>
+              <td class="xlsx-label" colspan="4">운전자 성명</td>
+              <td class="xlsx-label">비고</td>
+            </tr>
+            ${privateData}
+
+            <tr>
+              <td class="xlsx-side xlsx-transport-stack" rowspan="5">대<br>중<br>교<br>통</td>
+              <td class="xlsx-label">일 자</td>
+              <td class="xlsx-label" colspan="2">교통편</td>
+              <td class="xlsx-label" colspan="4">출발지</td>
+              <td class="xlsx-label" colspan="3">도착지</td>
+              <td class="xlsx-label" colspan="4">등 급</td>
+              <td class="xlsx-label" colspan="3">금 액</td>
+            </tr>
+            ${publicData}
+
+            <tr>
+              <td class="xlsx-note-box" colspan="19">
+                「공무원여비규정」 제16조 제1항 및 제2항의 규정에 의하여 관계서류를 첨부하여<br>
+                위와 같이 여비의 정산을 신청합니다.<br><br>
+                첨&nbsp;&nbsp;부 1. 출장신청서 1부.<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${escapeHtml(receiptLine)}<br><br>
+                ${escapeHtml(submitDate)}<br><br>
+                신 청 인&nbsp;&nbsp;${escapeHtml(settlement.name || trip.name || '')}&nbsp;&nbsp;${signHtml}
+              </td>
+            </tr>
+          </table>
         </div>
       </div>
-    `;
-  }
+    </div>
+  `;
+}
   function buildReceiptAppendixPages(settlement){
     normalizeSettlementShape(settlement);
     const items = receiptsBySettlement(settlement.id);
