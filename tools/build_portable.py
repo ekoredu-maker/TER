@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import struct
 import subprocess
 import sys
 import zipfile
@@ -92,30 +93,29 @@ def verify_template(target: Path) -> None:
         )
 
 
+def build_icon_from_png(target: Path) -> None:
+    png = target / "icons" / "icon-192.png"
+    ico = target / "app.ico"
+    if not png.is_file():
+        return
+    data = png.read_bytes()
+    # ICO can embed PNG data directly on modern Windows.
+    header = struct.pack("<HHH", 0, 1, 1)
+    entry = struct.pack(
+        "<BBBBHHII",
+        192, 192, 0, 0,
+        1, 32,
+        len(data),
+        6 + 16,
+    )
+    ico.write_bytes(header + entry + data)
+
+
 def write_windows_launcher(target: Path) -> None:
     shortcut_ps1 = r'''param([switch]$Silent)
 
-$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pngPath = Join-Path $root "icons\\icon-192.png"
-$iconPath = Join-Path $root "app.ico"
-
-if (-not (Test-Path $iconPath) -and (Test-Path $pngPath)) {
-    try {
-        Add-Type -AssemblyName System.Drawing
-        $bmp = [System.Drawing.Bitmap]::FromFile($pngPath)
-        $hIcon = $bmp.GetHicon()
-        $icon = [System.Drawing.Icon]::FromHandle($hIcon)
-        $stream = [System.IO.File]::Open($iconPath, [System.IO.FileMode]::Create)
-        $icon.Save($stream)
-        $stream.Close()
-        $icon.Dispose()
-        $bmp.Dispose()
-    } catch {
-        # Shortcut is still created with the default Windows icon.
-    }
-}
-
 $desktop = [Environment]::GetFolderPath("Desktop")
 if ([string]::IsNullOrWhiteSpace($desktop)) {
     $desktop = Join-Path $env:USERPROFILE "Desktop"
@@ -123,16 +123,21 @@ if ([string]::IsNullOrWhiteSpace($desktop)) {
 if (-not (Test-Path $desktop)) {
     New-Item -ItemType Directory -Path $desktop -Force | Out-Null
 }
+
 $linkPath = Join-Path $desktop "개인출장 여비정산.lnk"
 $runPath = Join-Path $root "RUN.cmd"
+$iconPath = Join-Path $root "app.ico"
+
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($linkPath)
 $shortcut.TargetPath = $runPath
 $shortcut.WorkingDirectory = $root
+$shortcut.Description = "개인출장 여비정산 관리 프로그램"
 if (Test-Path $iconPath) {
     $shortcut.IconLocation = $iconPath + ",0"
+} else {
+    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
 }
-$shortcut.Description = "개인출장 여비정산 관리 프로그램"
 $shortcut.Save()
 
 if (-not $Silent) {
@@ -251,6 +256,7 @@ def main() -> int:
         verify_template(target)
     install_vendor(target)
     install_runtime(target, embed_zip)
+    build_icon_from_png(target)
     write_windows_launcher(target)
 
     (target / "먼저읽기.txt").write_text(
