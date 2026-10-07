@@ -24,6 +24,7 @@ const DB_NAME = 'trip_settlement_manager_v1';
       defaultPosition: '',
       defaultWorkplace: '',
       signatureDataUrl: '',
+      signatureFile: null,
       receiptRequiredTypes: '주유/하이패스/기타',
       note: '현재 버전은 기관별 세부 여비 규정 전체를 자동 판정하지 않고, 업로드·정산 초안·증빙 관리·출력에 중점을 둔 시안입니다.'
     },
@@ -278,7 +279,7 @@ const DB_NAME = 'trip_settlement_manager_v1';
   }
 
   function useHybridStore(storeName){
-    return !!(window.HybridAPI && window.HybridAPI.authenticated && storeName !== 'receipts');
+    return !!(window.HybridAPI && window.HybridAPI.authenticated);
   }
 
   async function dbGetAll(storeName){
@@ -363,10 +364,17 @@ const DB_NAME = 'trip_settlement_manager_v1';
   async function saveSettings(){
     await dbPut('settings', {id:'default', value: state.settings});
   }
+  function signatureImageSrc(){
+    if(window.HybridAPI && window.HybridAPI.authenticated && state.settings.signatureFile){
+      try{ return window.HybridAPI.signatureUrl(); }catch(_err){ return ''; }
+    }
+    return state.settings.signatureDataUrl || '';
+  }
   function renderSignaturePreview(){
     const box = $('#signaturePreviewBox');
     if(!box) return;
-    box.innerHTML = state.settings.signatureDataUrl ? `<img src="${state.settings.signatureDataUrl}" alt="등록 서명">` : '<span class="small">등록된 서명이 없습니다.</span>';
+    const src = signatureImageSrc();
+    box.innerHTML = src ? `<img src="${escapeAttr(src)}" alt="등록 서명">` : '<span class="small">등록된 서명이 없습니다.</span>';
   }
   async function handleSignatureFile(file){
     if(!file) return;
@@ -374,9 +382,23 @@ const DB_NAME = 'trip_settlement_manager_v1';
       alert('서명은 이미지 파일로 등록해 주세요.');
       return;
     }
+    if(window.HybridAPI && window.HybridAPI.authenticated){
+      try{
+        const result = await window.HybridAPI.uploadSignature(file);
+        state.settings.signatureFile = result.signatureFile || null;
+        state.settings.signatureDataUrl = '';
+        await saveSettings();
+        renderSignaturePreview();
+        alert('서명이 Python 파일 저장소에 등록되었습니다.');
+      }catch(err){
+        alert('서명 저장 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+      }
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async () => {
       state.settings.signatureDataUrl = String(reader.result || '');
+      state.settings.signatureFile = null;
       renderSignaturePreview();
       await saveSettings();
       alert('서명이 등록되었습니다.');
@@ -406,11 +428,21 @@ const DB_NAME = 'trip_settlement_manager_v1';
     const name = String(item?.fileName || '').toLowerCase();
     return mime.includes('pdf') || name.endsWith('.pdf');
   }
+  function receiptAssetUrl(item){
+    if(item?.dataUrl) return item.dataUrl;
+    if(window.HybridAPI && window.HybridAPI.authenticated && item?.storage === 'python-file'){
+      try{ return window.HybridAPI.receiptUrl(item.id); }catch(_err){ return ''; }
+    }
+    return '';
+  }
   function receiptPreviewHtml(item){
     if(isPdfReceipt(item)){
       return `<div class="receipt-thumb pdf"><div class="pdf-mark">PDF</div><div class="pdf-name">${escapeHtml(item.fileName || 'document.pdf')}</div></div>`;
     }
-    return `<img src="${item.dataUrl}" alt="receipt">`;
+    const src = receiptAssetUrl(item);
+    return src
+      ? `<img src="${escapeAttr(src)}" alt="receipt">`
+      : '<div class="receipt-thumb"><div class="pdf-name">IMAGE</div></div>';
   }
 
 
@@ -869,7 +901,7 @@ const DB_NAME = 'trip_settlement_manager_v1';
             <div class="full">
               <label>서명 등록(출력 시 신청인 서명란 반영)</label>
               <div class="signature-box">
-                <div class="signature-preview" id="signaturePreviewBox">${state.settings.signatureDataUrl ? `<img src="${state.settings.signatureDataUrl}" alt="등록 서명">` : '<span class="small">등록된 서명이 없습니다.</span>'}</div>
+                <div class="signature-preview" id="signaturePreviewBox">${signatureImageSrc() ? `<img src="${escapeAttr(signatureImageSrc())}" alt="등록 서명">` : '<span class="small">등록된 서명이 없습니다.</span>'}</div>
                 <input type="file" id="signatureFile" accept="image/*" />
                 <button type="button" class="btn secondary" id="clearSignatureBtn">서명 삭제</button>
               </div>
@@ -954,12 +986,20 @@ const DB_NAME = 'trip_settlement_manager_v1';
       e.target.value = '';
     });
     $('#clearSignatureBtn')?.addEventListener('click', async () => {
-      if(!state.settings.signatureDataUrl){
+      if(!signatureImageSrc()){
         alert('등록된 서명이 없습니다.');
         return;
       }
       if(!confirm('등록된 서명을 삭제할까요?')) return;
+      if(window.HybridAPI && window.HybridAPI.authenticated){
+        try{ await window.HybridAPI.deleteSignature(); }
+        catch(err){
+          alert('서명 삭제 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+          return;
+        }
+      }
       state.settings.signatureDataUrl = '';
+      state.settings.signatureFile = null;
       renderSignaturePreview();
       await saveSettings();
     });
@@ -1324,6 +1364,7 @@ const DB_NAME = 'trip_settlement_manager_v1';
                 <button class="btn secondary" id="addPrivateCarBtn">자가용 행 추가</button>
                 <button class="btn secondary" id="addPublicBtn">대중교통 행 추가</button>
                 <button class="btn teal" id="jumpReceiptBtn">영수증 관리</button>
+                ${window.HybridAPI && window.HybridAPI.authenticated ? '<button class="btn ok" id="generateHwpxBtn">HWPX 정산서 생성</button>' : ''}
                 <button class="btn warn" id="printSettlementBtn">정산서·영수증 출력(A4)</button>
               </div>
             </div>
@@ -1620,6 +1661,26 @@ const DB_NAME = 'trip_settlement_manager_v1';
         state.activeTab = 'receipts';
         render();
       });
+      $('#generateHwpxBtn')?.addEventListener('click', async () => {
+        syncSettlementFromForm(settlement);
+        const issues = validateSettlement(settlement);
+        if(issues.length){
+          alert('HWPX 생성 전에 아래 항목을 확인해 주세요.\n\n- ' + issues.join('\n- '));
+          return;
+        }
+        await dbPut('settlements', settlement);
+        markSaved(settlement);
+        try{
+          const result = await window.HybridAPI.generateHwpx(
+            settlement,
+            receiptsBySettlement(settlement.id).length,
+            state.settings.kmRate || 200
+          );
+          alert('HWPX 정산서를 생성했습니다.\n저장 파일: ' + (result.filename || '여비정산서.hwpx'));
+        }catch(err){
+          alert('HWPX 생성 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+        }
+      });
       $('#printSettlementBtn')?.addEventListener('click', async () => {
         syncSettlementFromForm(settlement);
         const issues = validateSettlement(settlement);
@@ -1827,13 +1888,23 @@ const DB_NAME = 'trip_settlement_manager_v1';
       markSaved(settlement);
       await safePrintSettlement(settlement);
     });
-    $$('.open-receipt').forEach(btn => btn.addEventListener('click', () => {
+    $('.open-receipt').forEach(btn => btn.addEventListener('click', () => {
       const item = state.receipts.find(r => r.id === btn.dataset.id);
-      if(item) window.open(item.dataUrl, '_blank');
+      const src = item ? receiptAssetUrl(item) : '';
+      if(src) window.open(src, '_blank');
     }));
-    $$('.delete-receipt').forEach(btn => btn.addEventListener('click', async () => {
+    $('.delete-receipt').forEach(btn => btn.addEventListener('click', async () => {
       if(!confirm('이 영수증을 삭제할까요?')) return;
-      await dbDelete('receipts', btn.dataset.id);
+      try{
+        if(window.HybridAPI && window.HybridAPI.authenticated){
+          await window.HybridAPI.deleteReceipt(btn.dataset.id);
+        }else{
+          await dbDelete('receipts', btn.dataset.id);
+        }
+      }catch(err){
+        alert('영수증 삭제 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+        return;
+      }
       state.receipts = state.receipts.filter(r => r.id !== btn.dataset.id);
       render();
     }));
@@ -1861,20 +1932,34 @@ const DB_NAME = 'trip_settlement_manager_v1';
       await dbPut('settlements', settlement);
     }
     for(const file of files){
-      const dataUrl = await fileToDataURL(file);
-      const item = {
-        id: uid('receipt'),
-        settlementId,
-        tripId: settlement.tripId,
-        type,
-        fileName: file.name,
-        mimeType: file.type || '',
-        size: file.size,
-        dataUrl,
-        createdAt: nowStamp()
-      };
-      state.receipts.push(item);
-      await dbPut('receipts', item);
+      if(window.HybridAPI && window.HybridAPI.authenticated){
+        try{
+          const result = await window.HybridAPI.uploadReceipt(file, {
+            settlementId,
+            tripId:settlement.tripId,
+            type
+          });
+          if(result.item) state.receipts.push(result.item);
+        }catch(err){
+          alert('영수증 저장 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+          return;
+        }
+      }else{
+        const dataUrl = await fileToDataURL(file);
+        const item = {
+          id: uid('receipt'),
+          settlementId,
+          tripId: settlement.tripId,
+          type,
+          fileName: file.name,
+          mimeType: file.type || '',
+          size: file.size,
+          dataUrl,
+          createdAt: nowStamp()
+        };
+        state.receipts.push(item);
+        await dbPut('receipts', item);
+      }
     }
     settlement.receiptMode = 'attached';
     settlement.updatedAt = nowStamp();
@@ -2126,8 +2211,9 @@ const DB_NAME = 'trip_settlement_manager_v1';
     if(settlement.receiptMode === 'attached') receiptLine = `2. 영수증 ${receiptCount || 1}부.  끝.`;
     if(settlement.receiptMode === 'none') receiptLine = '2. 영수증 없음.  끝.';
     if(settlement.receiptMode === 'separate') receiptLine = '2. 영수증 별도 제출.  끝.';
-    const signHtml = state.settings.signatureDataUrl
-      ? `<img class="xlsx-sign-image" src="${escapeAttr(state.settings.signatureDataUrl)}" alt="등록 서명">`
+    const signSource = signatureImageSrc();
+    const signHtml = signSource
+      ? `<img class="xlsx-sign-image" src="${escapeAttr(signSource)}" alt="등록 서명">`
       : '(서명)';
     const submitDate = compactDate(settlement.settlementDate || '');
     const startDateText = settlement.startDate ? `${ymdToKorean(settlement.startDate)}${weekdayText(settlement.startDate)}` : '';
@@ -2346,8 +2432,8 @@ const DB_NAME = 'trip_settlement_manager_v1';
     const pages = items.map((r, i) => {
       const isPdf = /pdf/i.test(r.mimeType || '') || /\.pdf$/i.test(r.fileName || '');
       const body = isPdf
-        ? `<object class="print-receipt-frame" data="${escapeAttr(r.dataUrl)}" type="application/pdf"><div class="print-note">이 브라우저에서는 PDF 미리보기를 바로 출력하지 못합니다.\n파일명: ${escapeHtml(r.fileName || '')}</div></object>`
-        : `<img class="print-receipt-image" src="${escapeAttr(r.dataUrl)}" alt="${escapeAttr(r.fileName || '')}">`;
+        ? `<object class="print-receipt-frame" data="${escapeAttr(receiptAssetUrl(r))}" type="application/pdf"><div class="print-note">이 브라우저에서는 PDF 미리보기를 바로 출력하지 못합니다.\n파일명: ${escapeHtml(r.fileName || '')}</div></object>`
+        : `<img class="print-receipt-image" src="${escapeAttr(receiptAssetUrl(r))}" alt="${escapeAttr(r.fileName || '')}">`;
       return `
         <div class="print-page">
           <div class="print-title">영 수 증</div>
