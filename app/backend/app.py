@@ -16,6 +16,7 @@ VENDOR = ROOT / "vendor"
 if VENDOR.exists() and str(VENDOR) not in sys.path:
     sys.path.insert(0, str(VENDOR))
 
+from app.backend.services.backup import create_backup_zip, restore_backup_bytes
 from app.backend.services.excel import parse_trip_file
 from app.backend.services.files import (
     receipt_path,
@@ -33,10 +34,11 @@ DATA_DIR = ROOT / "data"
 RECEIPTS_DIR = DATA_DIR / "receipts"
 SIGNATURE_DIR = DATA_DIR / "signature"
 OUTPUT_DIR = ROOT / "output"
+BACKUP_DIR = ROOT / "backup"
 LOG_DIR = ROOT / "logs"
 TEMPLATE_PATH = ROOT / "template" / "여비정산서(양식).hwpx"
 
-for directory in (DATA_DIR, RECEIPTS_DIR, SIGNATURE_DIR, OUTPUT_DIR, LOG_DIR):
+for directory in (DATA_DIR, RECEIPTS_DIR, SIGNATURE_DIR, OUTPUT_DIR, BACKUP_DIR, LOG_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 STORE = SQLiteStore(DATA_DIR / "app.db")
@@ -347,6 +349,46 @@ class Handler(SimpleHTTPRequestHandler):
                     if file_path.is_file():
                         file_path.unlink()
                 _save_settings(settings)
+                self._send_json({"ok": True})
+                return
+
+            if path == "/api/backup/create":
+                filename = safe_name(f"출장정산백업_{stamp_kst()}.zip")
+                target = BACKUP_DIR / filename
+                create_backup_zip(
+                    store=STORE,
+                    receipts_dir=RECEIPTS_DIR,
+                    signature_dir=SIGNATURE_DIR,
+                    target=target,
+                )
+                self._send_json({
+                    "ok": True,
+                    "filename": target.name,
+                    "dataBase64": _encode_file(target),
+                })
+                return
+
+            if path == "/api/backup/restore":
+                raw = _decode_base64(payload.get("dataBase64") or "")
+                if not raw:
+                    raise ValueError("백업 ZIP 파일이 비어 있습니다.")
+                restore_backup_bytes(
+                    store=STORE,
+                    receipts_dir=RECEIPTS_DIR,
+                    signature_dir=SIGNATURE_DIR,
+                    data=raw,
+                    filename=str(payload.get("filename") or "backup.zip"),
+                )
+                self._send_json({"ok": True})
+                return
+
+            if path == "/api/reset":
+                for store_name in ("trips", "settlements", "receipts", "settings"):
+                    STORE.clear(store_name)
+                for directory in (RECEIPTS_DIR, SIGNATURE_DIR):
+                    for child in directory.iterdir():
+                        if child.is_file():
+                            child.unlink()
                 self._send_json({"ok": True})
                 return
 
