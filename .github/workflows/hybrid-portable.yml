@@ -1,0 +1,51 @@
+name: Hybrid portable build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - hybrid-v2
+    paths:
+      - "app/**"
+      - "assets/**"
+      - "index.html"
+      - "launcher.py"
+      - "requirements.txt"
+      - "tests/**"
+      - "tools/**"
+      - "template/**"
+      - ".github/workflows/hybrid-portable.yml"
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up build Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run backend regression tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Download Windows embeddable Python
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip" -OutFile "$env:RUNNER_TEMP\python-embed.zip"
+
+      - name: Build portable package
+        run: python tools/build_portable.py --python-embed "$env:RUNNER_TEMP\python-embed.zip" --name "개인출장_여비정산_Hybrid_v2"
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: travel-expense-hybrid-v2-windows-portable
+          path: dist/*.zip
+          if-no-files-found: error
