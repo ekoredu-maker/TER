@@ -1422,9 +1422,17 @@
       try{
         const result = await apiFetch('/api/template/status');
         box.className = result.ready ? 'success' : 'notice';
-        box.innerHTML = result.ready
-          ? '기준 HWPX가 등록되어 있습니다. <b>' + escapeHtml(result.filename || '여비정산서(양식).hwpx') + '</b>'
-          : '아직 기준 HWPX가 없습니다. 아래에서 <b>여비정산서(양식).hwpx</b>를 등록해 주세요.';
+        if(result.ready){
+          const groups = (result.connectedGroups || []).map(v => '· ' + escapeHtml(v)).join('<br>');
+          box.innerHTML =
+            '기준 HWPX가 정상 연결되어 있습니다. <b>' + escapeHtml(result.filename || '여비정산서(양식).hwpx') + '</b>' +
+            '<div class="small" style="margin-top:8px">연결 확인 항목</div>' +
+            '<div class="small" style="margin-top:4px;line-height:1.6">' + groups + '</div>';
+        }else if(result.errors?.length){
+          box.innerHTML = '기준 HWPX 구조 확인이 필요합니다.<br><span class="small">' + escapeHtml(result.errors.join(' / ')) + '</span>';
+        }else{
+          box.innerHTML = '아직 기준 HWPX가 없습니다. 아래에서 <b>여비정산서(양식).hwpx</b>를 등록해 주세요.';
+        }
       }catch(err){
         box.className = 'notice';
         box.textContent = '기준양식 상태 확인 실패: ' + (err?.message || String(err));
