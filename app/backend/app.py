@@ -117,8 +117,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "private, max-age=60")
         if download_name:
-            safe = safe_name(download_name)
-            self.send_header("Content-Disposition", f'inline; filename="{safe}"')
+            self.send_header("Content-Disposition", "inline")
         self.end_headers()
         self.wfile.write(data)
 
