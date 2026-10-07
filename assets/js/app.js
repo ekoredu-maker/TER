@@ -2602,6 +2602,15 @@ const DB_NAME = 'trip_settlement_manager_v1';
   let deferredInstallPrompt = null;
   function bindPwaUI(){
     const installBtn = $('#installPwaBtn');
+    if(window.HybridAPI && window.HybridAPI.authenticated){
+      if(installBtn) installBtn.hidden = true;
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.getRegistrations()
+          .then(list => Promise.all(list.map(reg => reg.unregister())))
+          .catch(err => console.warn('hybrid service worker cleanup failed', err));
+      }
+      return;
+    }
     if(installBtn && !installBtn.dataset.bound){
       installBtn.dataset.bound = '1';
       installBtn.addEventListener('click', async () => {
