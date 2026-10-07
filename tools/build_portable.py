@@ -135,6 +135,7 @@ def main() -> int:
     )
     parser.add_argument("--name", default=DEFAULT_NAME)
     parser.add_argument("--dist", type=Path, default=ROOT / "dist")
+    parser.add_argument("--allow-missing-template", action="store_true")
     args = parser.parse_args()
 
     embed_zip = args.python_embed.resolve()
@@ -150,7 +151,16 @@ def main() -> int:
     target.mkdir(parents=True)
 
     copy_app_tree(target)
-    verify_template(target)
+    if args.allow_missing_template:
+        (target / "template").mkdir(parents=True, exist_ok=True)
+        template = target / "template" / "여비정산서(양식).hwpx"
+        if not template.is_file():
+            (target / "template" / "README_TEMPLATE_REQUIRED.txt").write_text(
+                "최종 배포 전에 여비정산서(양식).hwpx를 이 폴더에 넣어야 합니다.\n",
+                encoding="utf-8",
+            )
+    else:
+        verify_template(target)
     install_vendor(target)
     install_runtime(target, embed_zip)
     write_windows_launcher(target)
