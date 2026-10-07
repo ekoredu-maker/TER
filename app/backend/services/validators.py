@@ -14,18 +14,32 @@ def _text(value) -> str:
     return str(value or "").strip()
 
 
+def _is_intra(settlement: dict) -> bool:
+    if _text(settlement.get("tripScope")) == "intra":
+        return True
+    return "관내" in _text(settlement.get("tripType")).replace(" ", "")
+
+
 def validate_settlement(settlement: dict, receipt_count: int = 0) -> ValidationResult:
     errors: list[str] = []
     warnings: list[str] = []
 
     if not _text(settlement.get("name")):
         errors.append("성명이 비어 있습니다.")
-    if not _text(settlement.get("position")):
-        errors.append("직급이 비어 있습니다.")
     if not _text(settlement.get("startDate")):
         errors.append("시작일이 비어 있습니다.")
     if not _text(settlement.get("destination")):
         errors.append("출장지가 비어 있습니다.")
+
+    # 정산불요는 운임·영수증 입력을 요구하지 않는다.
+    if _text(settlement.get("status")) == "exempt":
+        return ValidationResult(ok=not errors, errors=errors, warnings=warnings)
+
+    if _is_intra(settlement) and not _text(settlement.get("exceptionReason")):
+        errors.append("관내출장을 정산하는 경우 예외 정산 사유를 입력해 주세요.")
+
+    if not _text(settlement.get("position")):
+        errors.append("직급이 비어 있습니다.")
     if not _text(settlement.get("movementMode")):
         errors.append("이동구분을 선택해 주세요.")
     if not _text(settlement.get("routeType")):
