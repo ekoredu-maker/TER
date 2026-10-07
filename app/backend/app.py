@@ -223,10 +223,23 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/template/status":
             if not self._require_auth(parsed):
                 return
+            ready = TEMPLATE_PATH.is_file()
+            validation = validate_hwpx(TEMPLATE_PATH) if ready else {"ok": False, "errors": ["기준양식 없음"]}
             self._send_json({
                 "ok": True,
-                "ready": TEMPLATE_PATH.is_file(),
-                "filename": TEMPLATE_PATH.name if TEMPLATE_PATH.is_file() else "",
+                "ready": ready and validation.get("ok", False),
+                "filename": TEMPLATE_PATH.name if ready else "",
+                "structureOk": bool(validation.get("ok")),
+                "errors": validation.get("errors") or [],
+                "connectedGroups": [
+                    "소속·직급·성명·복수출장자",
+                    "출장일시·출장지·출장목적·식사제공여부",
+                    "숙박비 상한액·실소요액·초과지출사유",
+                    "친지집 숙박·공동숙박·공동숙박 추가지급 신청자",
+                    "자가용 일자·출발지·도착지·거리·금액·운전자·비고",
+                    "대중교통 일자·교통편·출발지·도착지·등급·금액",
+                    "영수증 첨부문구·신청일·신청인",
+                ],
             })
             return
 
