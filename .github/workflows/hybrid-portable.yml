@@ -43,6 +43,11 @@ jobs:
       - name: Build portable package
         run: python tools/build_portable.py --python-embed "$env:RUNNER_TEMP\python-embed.zip" --name "개인출장_여비정산_Hybrid_v2" --allow-missing-template
 
+      - name: Verify portable runtime
+        shell: pwsh
+        run: |
+          & ".\dist\개인출장_여비정산_Hybrid_v2\runtime\python.exe" -c "import openpyxl; import app.backend.app; print('PORTABLE_RUNTIME_OK'); print(openpyxl.__version__)"
+
       - name: Upload portable ZIP
         uses: actions/upload-artifact@v4
         with:
