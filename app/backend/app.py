@@ -28,7 +28,7 @@ from app.backend.services.files import (
     save_signature,
     signature_path,
 )
-from app.backend.services.hwpx import generate_hwpx
+from app.backend.services.hwpx import generate_hwpx, validate_hwpx
 from app.backend.services.store import SQLiteStore
 from app.backend.services.timeutils import iso_kst, stamp_kst
 from app.backend.services.validators import validate_settlement
@@ -218,6 +218,16 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self._serve_output(parsed):
+            return
+
+        if path == "/api/template/status":
+            if not self._require_auth(parsed):
+                return
+            self._send_json({
+                "ok": True,
+                "ready": TEMPLATE_PATH.is_file(),
+                "filename": TEMPLATE_PATH.name if TEMPLATE_PATH.is_file() else "",
+            })
             return
 
         if path == "/api/backup":
@@ -522,6 +532,36 @@ class Handler(SimpleHTTPRequestHandler):
                 receipt_count = int(payload.get("receiptCount") or 0) if isinstance(payload, dict) else 0
                 result = validate_settlement(settlement or {}, receipt_count=receipt_count)
                 self._send_json({"ok": result.ok, "errors": result.errors, "warnings": result.warnings})
+                return
+
+            if path == "/api/template":
+                raw = self._read_bytes()
+                filename = self._header_filename("여비정산서(양식).hwpx")
+                if not raw:
+                    raise ValueError("HWPX 기준양식 파일이 비어 있습니다.")
+                if not filename.lower().endswith(".hwpx"):
+                    raise ValueError("기준양식은 .hwpx 파일만 등록할 수 있습니다.")
+
+                TEMPLATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                incoming = TEMPLATE_PATH.parent / ".incoming_template.hwpx"
+                incoming.write_bytes(raw)
+                check = validate_hwpx(incoming)
+                if not check.get("ok"):
+                    incoming.unlink(missing_ok=True)
+                    raise ValueError("유효한 HWPX 양식이 아닙니다: " + "; ".join(check.get("errors") or []))
+
+                if TEMPLATE_PATH.is_file():
+                    template_backup_dir = BACKUP_DIR / "templates"
+                    template_backup_dir.mkdir(parents=True, exist_ok=True)
+                    backup_name = safe_name(f"여비정산서_기준양식_{stamp_kst()}.hwpx")
+                    TEMPLATE_PATH.replace(template_backup_dir / backup_name)
+
+                incoming.replace(TEMPLATE_PATH)
+                self._send_json({
+                    "ok": True,
+                    "ready": True,
+                    "filename": TEMPLATE_PATH.name,
+                })
                 return
 
             if path == "/api/hwpx":
