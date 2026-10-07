@@ -755,7 +755,53 @@
     const settingsRows = await dbGetAll('settings');
     const saved = settingsRows.find(r => r.id === 'default');
     if(saved) state.settings = {...state.settings, ...saved.value};
-    state.settlements = state.settlements.map(s => normalizeSettlementShape(s));
+
+    const migratedTrips = [];
+    state.trips.forEach(trip => {
+      const scope = tripScopeFromType(trip.tripType);
+      const noExpense = /여비\s*부지급|정산\s*불요|여비없음/.test(String(trip.purpose || ''));
+      const required = noExpense ? false : scope === 'intra' ? false : true;
+      const policy = noExpense ? 'no_expense' : scope === 'intra' ? 'intra_default_exempt' : scope === 'inter' ? 'inter_required' : 'unknown_review';
+      if(trip.tripScope !== scope || trip.settlementRequired !== required || trip.settlementPolicy !== policy){
+        trip.tripScope = scope;
+        trip.settlementRequired = required;
+        trip.settlementPolicy = policy;
+        trip.updatedAt = nowStamp();
+        migratedTrips.push(trip);
+      }
+    });
+
+    const migratedSettlements = [];
+    state.settlements = state.settlements.map(raw => {
+      const s = normalizeSettlementShape(raw);
+      const trip = state.trips.find(t => t.id === s.tripId);
+      if(trip){
+        s.tripType = trip.tripType || s.tripType || '';
+        s.tripScope = trip.tripScope || tripScopeFromType(s.tripType);
+        s.settlementPolicy = trip.settlementPolicy || s.settlementPolicy || '';
+      }
+      const hasPrivateWork = (s.privateCars || []).some(row =>
+        [row.from,row.to,row.km,row.fuel,row.toll,row.parking,row.other,row.manualAmount,row.remark]
+          .some(v => String(v || '').trim())
+      );
+      const hasPublicWork = (s.publicTransport || []).some(row =>
+        [row.transport,row.from,row.to,row.grade,row.amount,row.remark]
+          .some(v => String(v || '').trim())
+      );
+      const hasSettlementWork = !!(
+        s.movementMode || s.routeType || s.receiptMode || s.settlementDate ||
+        s.exceptionReason || hasPrivateWork || hasPublicWork || s.status === 'done'
+      );
+      if(trip?.settlementRequired === false && s.status === 'draft' && !hasSettlementWork){
+        s.status = 'exempt';
+        s.updatedAt = nowStamp();
+        migratedSettlements.push(s);
+      }
+      return s;
+    });
+
+    if(migratedTrips.length) await dbPutBulk('trips', migratedTrips);
+    if(migratedSettlements.length) await dbPutBulk('settlements', migratedSettlements);
   }
 
   async function saveSettings(){
