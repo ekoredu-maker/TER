@@ -130,7 +130,8 @@ $iconPath = Join-Path $root "app.ico"
 
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($linkPath)
-$shortcut.TargetPath = $runPath
+$shortcut.TargetPath = $env:ComSpec
+$shortcut.Arguments = '/c ""' + $runPath + '""'
 $shortcut.WorkingDirectory = $root
 $shortcut.Description = "개인출장 여비정산 관리 프로그램"
 if (Test-Path $iconPath) {
