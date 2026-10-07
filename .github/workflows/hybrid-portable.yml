@@ -48,9 +48,9 @@ jobs:
         run: |
           & ".\dist\개인출장_여비정산_Hybrid_v2\runtime\python.exe" -c "import openpyxl; import app.backend.app; print('PORTABLE_RUNTIME_OK'); print(openpyxl.__version__)"
 
-      - name: Upload portable ZIP
+      - name: Upload portable folder
         uses: actions/upload-artifact@v4
         with:
           name: travel-expense-hybrid-v2-windows-portable
-          path: dist/*.zip
+          path: dist/개인출장_여비정산_Hybrid_v2/
           if-no-files-found: error
