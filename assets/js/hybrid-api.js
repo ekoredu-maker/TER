@@ -135,6 +135,92 @@
     });
   }
 
+  async function uploadReceipt(file, meta={}){
+    requireHybrid();
+    const buffer = await file.arrayBuffer();
+    return jsonFetch('/api/receipt/upload', {
+      method:'POST',
+      body:JSON.stringify({
+        settlementId:meta.settlementId || '',
+        tripId:meta.tripId || '',
+        type:meta.type || '기타',
+        filename:file.name,
+        mimeType:file.type || '',
+        dataBase64:arrayBufferToBase64(buffer)
+      })
+    });
+  }
+
+  function receiptUrl(id){
+    requireHybrid();
+    return '/api/receipt/file?id=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(appToken);
+  }
+
+  async function deleteReceipt(id){
+    requireHybrid();
+    return jsonFetch('/api/receipt/delete', {
+      method:'POST',
+      body:JSON.stringify({id})
+    });
+  }
+
+  async function uploadSignature(file){
+    requireHybrid();
+    const buffer = await file.arrayBuffer();
+    return jsonFetch('/api/signature/upload', {
+      method:'POST',
+      body:JSON.stringify({
+        filename:file.name,
+        mimeType:file.type || '',
+        dataBase64:arrayBufferToBase64(buffer)
+      })
+    });
+  }
+
+  function signatureUrl(){
+    requireHybrid();
+    return '/api/signature/file?token=' + encodeURIComponent(appToken);
+  }
+
+  async function deleteSignature(){
+    requireHybrid();
+    return jsonFetch('/api/signature/delete', {
+      method:'POST',
+      body:'{}'
+    });
+  }
+
+  function downloadBase64(dataBase64, mimeType, filename){
+    const binary = atob(dataBase64 || '');
+    const bytes = new Uint8Array(binary.length);
+    for(let i=0;i<binary.length;i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], {type:mimeType || 'application/octet-stream'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'download.bin';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function generateHwpx(settlement, receiptCount=0, kmRate=200){
+    requireHybrid();
+    const data = await jsonFetch('/api/hwpx/generate', {
+      method:'POST',
+      body:JSON.stringify({settlement, receiptCount, kmRate})
+    });
+    if(data.dataBase64){
+      downloadBase64(
+        data.dataBase64,
+        'application/vnd.hancom.hwpx',
+        data.filename || '여비정산서.hwpx'
+      );
+    }
+    return data;
+  }
+
   async function validateSettlement(settlement, receiptCount=0){
     requireHybrid();
     return jsonFetch('/api/validate', {
@@ -161,6 +247,13 @@
     deleteStore,
     clearStore,
     parseExcel,
+    uploadReceipt,
+    receiptUrl,
+    deleteReceipt,
+    uploadSignature,
+    signatureUrl,
+    deleteSignature,
+    generateHwpx,
     validateSettlement,
     shutdown
   };
