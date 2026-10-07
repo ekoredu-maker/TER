@@ -30,11 +30,13 @@ ALIASES = {
     "mealProvided": ["식사제공여부", "식사제공", "중식제공", "제공식"],
     "signer": ["서명또는날인", "서명", "날인"],
     "coTravelers": ["복수출장자", "동행자", "동행출장자", "출장인원"],
-    "tripType": ["출장종류"],
+    "tripType": ["출장종류", "출장구분", "관내외구분"],
     "vehicleUse": ["공용차량이용여부", "공용차량_x000d_이용여부", "공용차량"],
     "approvalStatus": ["결재상태", "승인상태"],
     "deleteStatus": ["삭제여부"],
 }
+
+NO_SETTLEMENT_RE = re.compile(r"여비\s*부지급|정산\s*불요|여비없음")
 
 
 def _normalize_text(value: Any) -> str:
@@ -86,9 +88,22 @@ def _extract_period(value: Any) -> dict[str, str]:
 def _mapping(header: list[Any]) -> dict[str, int]:
     normalized = [_normalize_text(v) for v in header]
     result: dict[str, int] = {}
+
+    # Exact alias match first. This prevents short aliases from stealing a wider header.
     for key, aliases in ALIASES.items():
+        alias_norm = [_normalize_text(alias) for alias in aliases]
         for i, cell in enumerate(normalized):
-            if any(_normalize_text(alias) in cell for alias in aliases):
+            if cell and cell in alias_norm:
+                result[key] = i
+                break
+
+    # Fallback to substring matching only for still-unmapped fields.
+    for key, aliases in ALIASES.items():
+        if key in result:
+            continue
+        alias_norm = [_normalize_text(alias) for alias in aliases]
+        for i, cell in enumerate(normalized):
+            if cell and any(alias and alias in cell for alias in alias_norm):
                 result[key] = i
                 break
     return result
@@ -112,11 +127,33 @@ def _approved(value: Any) -> bool:
 
 def _deleted(value: Any) -> bool:
     s = str(value or "").strip()
-    return bool(s and not re.fullmatch(r"미삭제", s, flags=re.I))
+    if not s:
+        return False
+    if re.fullmatch(r"미삭제|N|NO|아니오|정상|0|FALSE", s, flags=re.I):
+        return False
+    if re.fullmatch(r"Y|YES|예|삭제|삭제됨|1|TRUE", s, flags=re.I):
+        return True
+    return True
 
 
-def _needs_settlement(purpose: Any) -> bool:
-    return not bool(re.search(r"여비\s*부지급|정산\s*불요|여비없음", str(purpose or "")))
+def _trip_scope(trip_type: Any) -> str:
+    s = re.sub(r"\s+", "", str(trip_type or ""))
+    if "관내" in s:
+        return "intra"
+    if "관외" in s:
+        return "inter"
+    return "unknown"
+
+
+def _settlement_policy(purpose: Any, trip_type: Any) -> tuple[bool, str]:
+    if NO_SETTLEMENT_RE.search(str(purpose or "")):
+        return False, "no_expense"
+    scope = _trip_scope(trip_type)
+    if scope == "intra":
+        return False, "intra_default_exempt"
+    if scope == "inter":
+        return True, "inter_required"
+    return True, "unknown_review"
 
 
 def _cell(row: list[Any], mapping: dict[str, int], key: str, default: Any = "") -> Any:
@@ -131,8 +168,10 @@ def _row_to_trip(row: list[Any], mapping: dict[str, int], filename: str) -> dict
     start_time = _maybe_time(_cell(row, mapping, "startTime")) or period["startTime"]
     end_time = _maybe_time(_cell(row, mapping, "endTime")) or period["endTime"]
     purpose = str(_cell(row, mapping, "purpose")).strip()
+    trip_type = str(_cell(row, mapping, "tripType")).strip()
+    settlement_required, settlement_policy = _settlement_policy(purpose, trip_type)
     now = iso_kst()
-    trip = {
+    return {
         "id": f"trip_{uuid.uuid4().hex}",
         "orderNo": str(_cell(row, mapping, "orderNo")).strip(),
         "dept": str(_cell(row, mapping, "dept")).strip(),
@@ -148,17 +187,18 @@ def _row_to_trip(row: list[Any], mapping: dict[str, int], filename: str) -> dict
         "purpose": purpose,
         "mealProvided": str(_cell(row, mapping, "mealProvided")).strip(),
         "signer": str(_cell(row, mapping, "signer")).strip(),
-        "tripType": str(_cell(row, mapping, "tripType")).strip(),
+        "tripType": trip_type,
+        "tripScope": _trip_scope(trip_type),
+        "settlementPolicy": settlement_policy,
         "vehicleUse": str(_cell(row, mapping, "vehicleUse")).strip(),
         "approvalStatus": str(_cell(row, mapping, "approvalStatus")).strip(),
         "deleteStatus": str(_cell(row, mapping, "deleteStatus")).strip(),
         "durationText": str(_cell(row, mapping, "durationText")).strip(),
-        "settlementRequired": _needs_settlement(purpose),
+        "settlementRequired": settlement_required,
         "source": filename,
         "createdAt": now,
         "updatedAt": now,
     }
-    return trip
 
 
 def _read_rows(filename: str, data: bytes) -> list[list[Any]]:
@@ -206,8 +246,14 @@ def parse_trip_file(filename: str, data: bytes) -> dict[str, Any]:
         if not _approved(trip["approvalStatus"]):
             warnings.append(f'{row_no}행: 결재상태가 "{trip["approvalStatus"]}"라서 제외')
             continue
-        if not trip["settlementRequired"]:
-            warnings.append(f"{row_no}행: 여비부지급 문구가 있어 정산불요로 표시")
+
+        if trip["settlementPolicy"] == "no_expense":
+            warnings.append(f"{row_no}행: 여비부지급/정산불요 문구가 있어 정산불요로 표시")
+        elif trip["settlementPolicy"] == "intra_default_exempt":
+            warnings.append(f"{row_no}행: 관내출장으로 확인되어 기본 정산불요로 표시")
+        elif trip["settlementPolicy"] == "unknown_review":
+            warnings.append(f"{row_no}행: 관내·관외 구분을 확인하지 못해 정산대상으로 임시 표시")
+
         preview.append(trip)
 
     return {"preview": preview, "warnings": warnings}
