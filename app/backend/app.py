@@ -104,7 +104,7 @@ def _remove_signature_file(meta: dict | None) -> None:
 
 
 class Handler(SimpleHTTPRequestHandler):
-    server_version = "TripExpenseHybrid/2.0-RC1"
+    server_version = "TripExpenseHybrid/2.0-RC1.2"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(FRONTEND_DIR), **kwargs)
@@ -198,7 +198,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/health":
             self._send_json({
                 "ok": True,
-                "version": "2.0-RC1",
+                "version": "2.0-RC1.2",
                 "time": iso_kst(),
                 "python": sys.version.split()[0],
                 "templateReady": TEMPLATE_PATH.is_file(),
@@ -566,6 +566,19 @@ class Handler(SimpleHTTPRequestHandler):
 
             if path == "/api/hwpx":
                 settlement = self._read_json()
+
+                if str(settlement.get("status") or "").strip() == "exempt":
+                    self._send_json(
+                        {"ok": False, "error": "정산불요 상태에서는 HWPX 정산서를 생성하지 않습니다."},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                if not str(settlement.get("settlementDate") or "").strip():
+                    self._send_json(
+                        {"ok": False, "error": "HWPX 생성 전 정산일자를 입력해 주세요."},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
                 receipt_count = len([
                     x for x in STORE.get_all("receipts")
                     if x.get("settlementId") == settlement.get("id")
@@ -603,6 +616,19 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/hwpx/generate":
                 payload = self._read_json()
                 settlement = dict(payload.get("settlement") or {})
+
+                if str(settlement.get("status") or "").strip() == "exempt":
+                    self._send_json(
+                        {"ok": False, "error": "정산불요 상태에서는 HWPX 정산서를 생성하지 않습니다."},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                if not str(settlement.get("settlementDate") or "").strip():
+                    self._send_json(
+                        {"ok": False, "error": "HWPX 생성 전 정산일자를 입력해 주세요."},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
                 receipt_count = int(payload.get("receiptCount") or 0)
                 km_rate = float(payload.get("kmRate") or 200)
                 result = validate_settlement(settlement, receipt_count=receipt_count)
@@ -696,7 +722,7 @@ def serve(open_browser: bool = True) -> int:
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     host, port = server.server_address
     url = f"http://{host}:{port}/?token={urllib.parse.quote(APP_TOKEN)}"
-    print("개인출장·여비정산 Hybrid v2.0-RC1")
+    print("개인출장·여비정산 Hybrid v2.0-RC1.2")
     print(f"URL: {url}")
     if open_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()
