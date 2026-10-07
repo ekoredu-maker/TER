@@ -10,6 +10,29 @@ from typing import Any
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 NS = {"hp": HP}
 
+EXPECTED_CELLS = {
+    (2, 0): (2, 1),    # 소속
+    (7, 0): (5, 1),    # 직급
+    (15, 0): (4, 1),   # 성명
+    (2, 1): (17, 1),   # 복수출장자
+    (3, 2): (16, 1),   # 출장일시
+    (3, 3): (16, 1),   # 출장지
+    (3, 4): (16, 1),   # 출장목적
+    (3, 5): (16, 1),   # 식사제공여부
+    (3, 6): (3, 1),    # 숙박 지급액
+    (10, 6): (3, 1),   # 숙박 실제소요액
+    (17, 6): (2, 1),   # 초과지출사유
+    (3, 7): (3, 1),    # 친지집 숙박
+    (10, 7): (3, 1),   # 공동숙박
+    (17, 7): (2, 1),   # 공동숙박 추가지급 신청자
+    (11, 9): (3, 4),   # 자가용 금액 병합
+    (14, 9): (4, 4),   # 자가용 운전자 병합
+    (18, 9): (1, 4),   # 자가용 비고 병합
+    (16, 14): (3, 1),  # 대중교통 금액
+    (16, 17): (3, 1),  # 대중교통 마지막 금액
+    (0, 18): (19, 1),  # 하단 신청문구
+}
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -41,6 +64,11 @@ def _date_kr(value: str) -> str:
     if not m:
         return s
     return f"{int(m.group(1))}년 {int(m.group(2))}월 {int(m.group(3))}일"
+
+
+def _night_text(value: Any) -> str:
+    s = _text(value)
+    return f"({s})박" if s else "(  )박"
 
 
 def _trip_period(settlement: dict[str, Any]) -> str:
@@ -98,10 +126,34 @@ def _attachment_line(settlement: dict[str, Any], receipt_count: int) -> str:
 def _register_namespaces(xml_bytes: bytes) -> None:
     for _event, item in ET.iterparse(io.BytesIO(xml_bytes), events=("start-ns",)):
         prefix, uri = item
+        if prefix == "xml":
+            continue
         try:
             ET.register_namespace(prefix or "", uri)
         except ValueError:
             pass
+
+
+def _element_text(element) -> str:
+    return "".join((node.text or "") for node in element.findall(".//hp:t", NS))
+
+
+def _set_element_text(element, value: Any) -> None:
+    texts = element.findall(".//hp:t", NS)
+    if texts:
+        texts[0].text = str(value or "")
+        for node in texts[1:]:
+            node.text = ""
+        return
+
+    run = element.find(".//hp:run", NS)
+    if run is None:
+        p = element.find(".//hp:p", NS)
+        if p is None:
+            raise ValueError("HWPX 문단 구조를 찾지 못했습니다.")
+        run = ET.SubElement(p, f"{{{HP}}}run", {"charPrIDRef": "5"})
+    t = ET.SubElement(run, f"{{{HP}}}t")
+    t.text = str(value or "")
 
 
 class _Form:
@@ -123,32 +175,27 @@ class _Form:
 
     def set_cell(self, col: int, row: int, value: Any) -> None:
         tc = self.cell(col, row)
-        sub = tc.find("./hp:subList", NS)
-        if sub is None:
-            raise ValueError(f"HWPX cell ({col},{row}) has no subList")
-        p = sub.find("./hp:p", NS)
-        if p is None:
-            p = ET.SubElement(sub, f"{{{HP}}}p", {"id": "2147483648", "paraPrIDRef": "3", "styleIDRef": "0"})
-        run = p.find("./hp:run", NS)
-        if run is None:
-            run = ET.SubElement(p, f"{{{HP}}}run", {"charPrIDRef": "5"})
-        for child in list(run):
-            if child.tag == f"{{{HP}}}t":
-                run.remove(child)
-        t = ET.SubElement(run, f"{{{HP}}}t")
-        t.text = _text(value)
+        paragraphs = tc.findall("./hp:subList/hp:p", NS)
+        if not paragraphs:
+            raise ValueError(f"HWPX cell ({col},{row}) has no paragraph")
+        _set_element_text(paragraphs[0], _text(value))
+        for p in paragraphs[1:]:
+            _set_element_text(p, "")
 
-    def replace_text(self, pattern: str, replacement: str) -> int:
-        count = 0
+    def set_paragraph_containing(self, keyword: str, value: str) -> bool:
+        for p in self.root.findall(".//hp:p", NS):
+            if keyword in _element_text(p):
+                _set_element_text(p, value)
+                return True
+        return False
+
+    def set_paragraph_matching(self, pattern: str, value: str) -> bool:
         regex = re.compile(pattern)
-        for node in self.root.findall(".//hp:t", NS):
-            if not node.text:
-                continue
-            new_text, n = regex.subn(replacement, node.text)
-            if n:
-                node.text = new_text
-                count += n
-        return count
+        for p in self.root.findall(".//hp:p", NS):
+            if regex.search(_element_text(p)):
+                _set_element_text(p, value)
+                return True
+        return False
 
     def to_bytes(self) -> bytes:
         return ET.tostring(self.root, encoding="utf-8", xml_declaration=True)
@@ -166,6 +213,10 @@ def generate_hwpx(
     output_path = Path(output_path)
     if not template_path.is_file():
         raise FileNotFoundError(f"HWPX 기준양식이 없습니다: {template_path}")
+
+    template_check = validate_hwpx(template_path)
+    if not template_check["ok"]:
+        raise ValueError("기준 HWPX 구조 검증 실패: " + "; ".join(template_check["errors"]))
 
     with zipfile.ZipFile(template_path, "r") as zin:
         section = zin.read("Contents/section0.xml")
@@ -187,11 +238,11 @@ def generate_hwpx(
         form.set_cell(3, 6, _money(settlement.get("lodgingAdvance")))
         form.set_cell(10, 6, _money(settlement.get("lodgingActual")))
         form.set_cell(17, 6, settlement.get("lodgingOverReason"))
-        form.set_cell(3, 7, f"({_text(settlement.get('lodgingFriendNights')) or '0'})박")
-        form.set_cell(10, 7, f"({_text(settlement.get('lodgingSharedNights')) or '0'})박")
+        form.set_cell(3, 7, _night_text(settlement.get("lodgingFriendNights")))
+        form.set_cell(10, 7, _night_text(settlement.get("lodgingSharedNights")))
         form.set_cell(17, 7, settlement.get("lodgingSharedApplicant"))
 
-        # 자가용 4개 이동행 + 병합된 금액/운전자/비고
+        # 자가용: 공식 양식은 이동 4행, 금액/운전자/비고는 4행 병합
         private_rows = list(settlement.get("privateCars") or [])[:4]
         for offset in range(4):
             row_addr = 9 + offset
@@ -202,8 +253,8 @@ def generate_hwpx(
             form.set_cell(8, row_addr, row.get("km"))
 
         private_total = sum(_private_row_amount(row, km_rate) for row in private_rows)
-        drivers = []
-        remarks = []
+        drivers: list[str] = []
+        remarks: list[str] = []
         for row in private_rows:
             driver = _text(row.get("driver"))
             remark = _text(row.get("remark"))
@@ -215,7 +266,7 @@ def generate_hwpx(
         form.set_cell(14, 9, ", ".join(drivers))
         form.set_cell(18, 9, ", ".join(remarks))
 
-        # 대중교통 4개 독립행
+        # 대중교통: 공식 양식은 4개 독립행, 마지막 칸은 금액만 출력
         public_rows = list(settlement.get("publicTransport") or [])[:4]
         for offset in range(4):
             row_addr = 14 + offset
@@ -228,13 +279,18 @@ def generate_hwpx(
             form.set_cell(16, row_addr, _money(row.get("amount")))
 
         # 하단 첨부·신청일·신청인
-        form.replace_text(r"\s*2\.\s*영수증[^\n]*?끝\.", _attachment_line(settlement, receipt_count))
+        if not form.set_paragraph_containing("2. 영수증", _attachment_line(settlement, receipt_count)):
+            raise ValueError("기준양식에서 영수증 첨부 문구를 찾지 못했습니다.")
+
         settlement_date = _date_kr(_text(settlement.get("settlementDate")))
         if settlement_date:
-            form.replace_text(r"\s*\d{4}년\s*\d*월\s*\d*일", f"                                   {settlement_date}")
+            if not form.set_paragraph_matching(r"\d{4}년.*월.*일", f"                                   {settlement_date}"):
+                raise ValueError("기준양식에서 신청일자 문단을 찾지 못했습니다.")
+
         applicant = _text(settlement.get("name"))
         if applicant:
-            form.replace_text(r"\s*신\s*청\s*인\s*(?:[^\n]*?)\(서명\)", f"                                        신 청 인  {applicant}  (서명)")
+            if not form.set_paragraph_matching(r"신\s*청\s*인.*서명", f"                                        신 청 인  {applicant}  (서명)"):
+                raise ValueError("기준양식에서 신청인 서명 문단을 찾지 못했습니다.")
 
         new_section = form.to_bytes()
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -257,20 +313,64 @@ def generate_hwpx(
 def validate_hwpx(path: Path) -> dict[str, Any]:
     path = Path(path)
     errors: list[str] = []
-    required = {"mimetype", "Contents/section0.xml", "Contents/header.xml", "Contents/content.hpf"}
+    required = {
+        "mimetype",
+        "Contents/section0.xml",
+        "Contents/header.xml",
+        "Contents/content.hpf",
+    }
 
     try:
         with zipfile.ZipFile(path, "r") as zf:
             bad = zf.testzip()
             if bad:
                 errors.append(f"손상된 ZIP 항목: {bad}")
-            names = set(zf.namelist())
+
+            infos = zf.infolist()
+            names = {info.filename for info in infos}
             missing = sorted(required - names)
             if missing:
                 errors.append("필수 항목 누락: " + ", ".join(missing))
+
+            if infos:
+                if infos[0].filename != "mimetype":
+                    errors.append("HWPX mimetype 항목이 첫 번째가 아닙니다.")
+                elif infos[0].compress_type != zipfile.ZIP_STORED:
+                    errors.append("HWPX mimetype 항목이 비압축 저장이 아닙니다.")
+
             if "Contents/section0.xml" in names:
                 try:
-                    ET.fromstring(zf.read("Contents/section0.xml"))
+                    section = zf.read("Contents/section0.xml")
+                    _register_namespaces(section)
+                    root = ET.fromstring(section)
+                    table = root.find(".//hp:tbl", NS)
+                    if table is None:
+                        errors.append("여비정산 표를 찾지 못했습니다.")
+                    else:
+                        found: dict[tuple[int, int], tuple[int, int]] = {}
+                        max_row = -1
+                        for tc in table.findall(".//hp:tc", NS):
+                            addr = tc.find("./hp:cellAddr", NS)
+                            span = tc.find("./hp:cellSpan", NS)
+                            if addr is None or span is None:
+                                continue
+                            key = (int(addr.get("colAddr", "-1")), int(addr.get("rowAddr", "-1")))
+                            found[key] = (
+                                int(span.get("colSpan", "1")),
+                                int(span.get("rowSpan", "1")),
+                            )
+                            max_row = max(max_row, key[1])
+
+                        if max_row != 18:
+                            errors.append(f"여비정산 표 행 구조가 다릅니다. 마지막 행={max_row}, 기대값=18")
+
+                        for key, expected_span in EXPECTED_CELLS.items():
+                            if key not in found:
+                                errors.append(f"기준 셀 누락: {key}")
+                            elif found[key] != expected_span:
+                                errors.append(
+                                    f"기준 셀 병합구조 불일치 {key}: {found[key]} != {expected_span}"
+                                )
                 except ET.ParseError as exc:
                     errors.append(f"section0.xml 파싱 오류: {exc}")
     except Exception as exc:
