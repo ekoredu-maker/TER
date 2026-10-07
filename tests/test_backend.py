@@ -34,33 +34,47 @@ class HybridBackendTests(unittest.TestCase):
         wb = Workbook()
         ws = wb.active
         ws.append([
-            "순번", "부서", "직위", "신청자", "출장기간", "출장지",
+            "순번", "부서", "직위", "신청자", "출장종류", "출장기간", "출장지",
             "출장목적", "식사제공여부", "결재상태", "삭제여부",
         ])
         ws.append([
-            1, "교육과", "장학사", "홍길동",
+            1, "교육과", "장학사", "홍길동", "관외출장",
             "2026.10.06 09:00 ~ 2026.10.06 18:00",
             "충북교육청", "업무협의", "중식 제공", "완결", "미삭제",
         ])
         ws.append([
-            2, "교육과", "장학사", "홍길동",
+            2, "교육과", "장학사", "홍길동", "관내출장",
             "2026.10.07 09:00 ~ 2026.10.07 18:00",
-            "제천시청", "진행 중 협의", "미제공", "진행중", "미삭제",
+            "제천시청", "업무협의", "미제공", "완결", "N",
         ])
         ws.append([
-            3, "교육과", "장학사", "홍길동",
+            3, "교육과", "장학사", "홍길동", "관외출장",
             "2026.10.08 09:00 ~ 2026.10.08 18:00",
             "청주시", "연수 여비부지급", "미제공", "완결", "미삭제",
+        ])
+        ws.append([
+            4, "교육과", "장학사", "홍길동", "관외출장",
+            "2026.10.09 09:00 ~ 2026.10.09 18:00",
+            "청주시", "진행 중 협의", "미제공", "진행중", "미삭제",
         ])
         data = io.BytesIO()
         wb.save(data)
 
         result = parse_trip_file("출장목록.xlsx", data.getvalue())
-        self.assertEqual(len(result["preview"]), 2)
-        self.assertEqual(result["preview"][0]["startDate"], "2026-10-06")
-        self.assertEqual(result["preview"][0]["startTime"], "09:00")
-        self.assertFalse(result["preview"][1]["settlementRequired"])
-        self.assertTrue(result["preview"][0]["createdAt"].endswith("+09:00"))
+        self.assertEqual(len(result["preview"]), 3)
+
+        inter, intra, no_expense = result["preview"]
+        self.assertEqual(inter["tripScope"], "inter")
+        self.assertTrue(inter["settlementRequired"])
+        self.assertEqual(inter["settlementPolicy"], "inter_required")
+
+        self.assertEqual(intra["tripScope"], "intra")
+        self.assertFalse(intra["settlementRequired"])
+        self.assertEqual(intra["settlementPolicy"], "intra_default_exempt")
+
+        self.assertFalse(no_expense["settlementRequired"])
+        self.assertEqual(no_expense["settlementPolicy"], "no_expense")
+        self.assertTrue(inter["createdAt"].endswith("+09:00"))
 
     def test_receipt_and_signature_file_storage(self):
         with tempfile.TemporaryDirectory() as td:
@@ -121,6 +135,42 @@ class HybridBackendTests(unittest.TestCase):
             )
             result = validate_hwpx(output)
             self.assertTrue(result["ok"], result["errors"])
+
+    def test_intracity_settlement_requires_exception_reason(self):
+        base = {
+            "name": "홍길동",
+            "position": "장학사",
+            "startDate": "2026-10-06",
+            "destination": "제천시청",
+            "tripType": "관내출장",
+            "tripScope": "intra",
+            "movementMode": "private",
+            "routeType": "round",
+            "mealProvidedFlag": "no",
+            "receiptMode": "none",
+            "settlementDate": "2026-10-07",
+            "status": "done",
+            "privateCars": [
+                {"from": "제천교육지원청", "to": "제천시청", "date": "2026-10-06"},
+                {"from": "제천시청", "to": "제천교육지원청", "date": "2026-10-06"},
+            ],
+            "publicTransport": [],
+        }
+        result = validate_settlement(base, receipt_count=0)
+        self.assertFalse(result.ok)
+        self.assertTrue(any("예외 정산 사유" in x for x in result.errors))
+
+        base["exceptionReason"] = "관내 행사 지원으로 자가용 실비 정산 필요"
+        result = validate_settlement(base, receipt_count=0)
+        self.assertTrue(result.ok, result.errors)
+
+        base["status"] = "exempt"
+        base["exceptionReason"] = ""
+        base["movementMode"] = ""
+        base["routeType"] = ""
+        base["receiptMode"] = ""
+        result = validate_settlement(base, receipt_count=0)
+        self.assertTrue(result.ok, result.errors)
 
     def test_settlement_validation(self):
         settlement = {
