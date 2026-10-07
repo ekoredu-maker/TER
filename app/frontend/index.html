@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#1f4b99" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<title>개인출장·여비정산 Hybrid v2.0-beta2.1</title>
+<title>개인출장·여비정산 Hybrid v2.0-RC1</title>
 <style>
   :root{
     --bg:#f5f7fb; --card:#ffffff; --line:#d9e1ec; --text:#1f2937; --muted:#6b7280;
@@ -317,7 +317,7 @@
 <body>
 <header class="program-titlebar">
   <div>
-    <h1>개인출장 · 여비정산 관리 프로그램 <span class="version-tag">v2.0-beta2.1</span></h1>
+    <h1>개인출장 · 여비정산 관리 프로그램 <span class="version-tag">v2.0-RC1</span></h1>
     <div class="sub">출장 등록 → 정산 작성 → 증빙 등록 → 출력의 업무 흐름에 맞춘 Python 하이브리드 프로그램</div>
   </div>
   <div class="titlebar-actions">
@@ -365,7 +365,7 @@
 <div class="modal-backdrop hidden" id="helpModal" aria-hidden="true">
   <div class="modal-panel">
     <div class="modal-head">
-      <h2>사용방법 · v2.0-beta2.1 하이브리드판</h2>
+      <h2>사용방법 · v2.0-RC1 하이브리드판</h2>
       <button class="btn secondary" id="helpCloseTopBtn" type="button">닫기</button>
     </div>
     <div class="manual-grid">
@@ -2264,7 +2264,7 @@
     await dbClear('settlements');
     await apiFetch('/api/signature/delete', {method:'POST'}).catch(()=>{});
     state.trips=[]; state.settlements=[]; state.receipts=[];
-    state.settings = {orgName:'교육과', kmRate:200, defaultApplicant:'', defaultPosition:'', defaultWorkplace:'', signatureDataUrl:'', receiptRequiredTypes:'주유/하이패스/기타', note:'하이브리드 v2.0-beta2.1'};
+    state.settings = {orgName:'교육과', kmRate:200, defaultApplicant:'', defaultPosition:'', defaultWorkplace:'', signatureDataUrl:'', receiptRequiredTypes:'주유/하이패스/기타', note:'하이브리드 v2.0-RC1'};
     await saveSettings();
     state.selectedTripId=''; state.selectedSettlementId=''; state.receiptFilterSettlementId='';
     state.ui.dirty=false; state.ui.dirtySettlementId=''; state.ui.lastSavedAt=nowStamp();
