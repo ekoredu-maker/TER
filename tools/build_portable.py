@@ -117,12 +117,17 @@ if (-not (Test-Path $iconPath) -and (Test-Path $pngPath)) {
 }
 
 $desktop = [Environment]::GetFolderPath("Desktop")
+if ([string]::IsNullOrWhiteSpace($desktop)) {
+    $desktop = Join-Path $env:USERPROFILE "Desktop"
+}
+if (-not (Test-Path $desktop)) {
+    New-Item -ItemType Directory -Path $desktop -Force | Out-Null
+}
 $linkPath = Join-Path $desktop "개인출장 여비정산.lnk"
 $runPath = Join-Path $root "RUN.cmd"
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($linkPath)
-$shortcut.TargetPath = $env:ComSpec
-$shortcut.Arguments = '/c ""' + $runPath + '""'
+$shortcut.TargetPath = $runPath
 $shortcut.WorkingDirectory = $root
 if (Test-Path $iconPath) {
     $shortcut.IconLocation = $iconPath + ",0"
