@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Iterator
 
 ALLOWED_STORES = {"trips", "settlements", "receipts", "settings"}
 
@@ -21,8 +22,22 @@ class SQLiteStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @contextmanager
+    def _connection(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
+        conn = self._connect()
+        try:
+            yield conn
+            if write:
+                conn.commit()
+        except Exception:
+            if write:
+                conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def _init_db(self) -> None:
-        with self._connect() as conn:
+        with self._connection(write=True) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_store (
                     store_name TEXT NOT NULL,
@@ -39,7 +54,7 @@ class SQLiteStore:
 
     def get_all(self, store_name: str) -> list[dict[str, Any]]:
         self._check_store(store_name)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             rows = conn.execute(
                 "SELECT payload FROM app_store WHERE store_name=? ORDER BY rowid",
                 (store_name,),
@@ -48,7 +63,7 @@ class SQLiteStore:
 
     def get(self, store_name: str, item_id: str) -> dict[str, Any] | None:
         self._check_store(store_name)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             row = conn.execute(
                 "SELECT payload FROM app_store WHERE store_name=? AND item_id=?",
                 (store_name, item_id),
@@ -61,7 +76,7 @@ class SQLiteStore:
         if not item_id:
             raise ValueError("item id is required")
         payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection(write=True) as conn:
             conn.execute(
                 """
                 INSERT INTO app_store(store_name,item_id,payload)
@@ -74,7 +89,7 @@ class SQLiteStore:
 
     def put_bulk(self, store_name: str, values: list[dict[str, Any]]) -> None:
         self._check_store(store_name)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection(write=True) as conn:
             for value in values:
                 item_id = str(value.get("id") or "").strip()
                 if not item_id:
@@ -86,12 +101,16 @@ class SQLiteStore:
                     ON CONFLICT(store_name,item_id)
                     DO UPDATE SET payload=excluded.payload
                     """,
-                    (store_name, item_id, json.dumps(value, ensure_ascii=False, separators=(",", ":"))),
+                    (
+                        store_name,
+                        item_id,
+                        json.dumps(value, ensure_ascii=False, separators=(",", ":")),
+                    ),
                 )
 
     def delete(self, store_name: str, item_id: str) -> None:
         self._check_store(store_name)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection(write=True) as conn:
             conn.execute(
                 "DELETE FROM app_store WHERE store_name=? AND item_id=?",
                 (store_name, item_id),
@@ -99,11 +118,10 @@ class SQLiteStore:
 
     def clear(self, store_name: str) -> None:
         self._check_store(store_name)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection(write=True) as conn:
             conn.execute("DELETE FROM app_store WHERE store_name=?", (store_name,))
 
 
-# Backward-compatible alias used by the current beta test script.
 JsonStore = SQLiteStore
 
 # Copyright 2026@박주가리교감 All rights reserved.
