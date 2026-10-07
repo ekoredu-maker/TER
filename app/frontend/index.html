@@ -1317,6 +1317,20 @@
           </div>
           <div class="notice" style="margin-top:12px">등록 서명은 A4 화면 인쇄에 반영됩니다. HWPX는 현재 양식의 신청인·서명 위치를 보존하며, 이미지 직접 삽입은 별도 검증 후 적용합니다.</div>
         </div>
+        <div class="card">
+          <h2>HWPX 기준양식</h2>
+          <div id="templateStatus" class="notice">기준양식 상태를 확인하고 있습니다.</div>
+          <div class="form-grid" style="margin-top:12px">
+            <div class="full">
+              <label>여비정산서 HWPX 양식 등록</label>
+              <input type="file" id="templateFile" accept=".hwpx,application/octet-stream">
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button type="button" class="btn ok" id="uploadTemplateBtn">기준양식 등록</button>
+          </div>
+          <div class="info" style="margin-top:10px">한 번 등록하면 프로그램의 template 폴더에 보관됩니다. 기존 양식을 바꾸면 이전 파일은 backup/templates 폴더에 자동 보관합니다.</div>
+        </div>
       </div>`;
     $('#saveSettingsBtn')?.addEventListener('click', async () => {
       state.settings.orgName=$('#settingsOrgName').value.trim();
@@ -1332,6 +1346,38 @@
       if(!confirm('등록된 서명을 삭제할까요?')) return;
       await apiFetch('/api/signature/delete',{method:'POST'}); delete state.settings.signatureFile; delete state.settings.signatureDataUrl; renderSettings();
     });
+    async function refreshTemplateStatus(){
+      const box = $('#templateStatus');
+      if(!box) return;
+      try{
+        const result = await apiFetch('/api/template/status');
+        box.className = result.ready ? 'success' : 'notice';
+        box.innerHTML = result.ready
+          ? '기준 HWPX가 등록되어 있습니다. <b>' + escapeHtml(result.filename || '여비정산서(양식).hwpx') + '</b>'
+          : '아직 기준 HWPX가 없습니다. 아래에서 <b>여비정산서(양식).hwpx</b>를 등록해 주세요.';
+      }catch(err){
+        box.className = 'notice';
+        box.textContent = '기준양식 상태 확인 실패: ' + (err?.message || String(err));
+      }
+    }
+    $('#uploadTemplateBtn')?.addEventListener('click', async () => {
+      const file = $('#templateFile')?.files?.[0];
+      if(!file){ alert('등록할 HWPX 양식 파일을 선택해 주세요.'); return; }
+      if(!/\.hwpx$/i.test(file.name)){ alert('HWPX 파일만 등록할 수 있습니다.'); return; }
+      try{
+        await apiFetch('/api/template', {
+          method:'POST',
+          headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name)},
+          body:file
+        });
+        $('#templateFile').value='';
+        alert('HWPX 기준양식을 등록했습니다.');
+        await refreshTemplateStatus();
+      }catch(err){
+        alert('기준양식 등록 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+      }
+    });
+    refreshTemplateStatus();
   }
 
   function guessHeaderMapping(headerRow){
