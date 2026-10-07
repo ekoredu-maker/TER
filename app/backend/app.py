@@ -17,14 +17,26 @@ if VENDOR.exists() and str(VENDOR) not in sys.path:
     sys.path.insert(0, str(VENDOR))
 
 from app.backend.services.excel import parse_trip_file
+from app.backend.services.files import (
+    receipt_path,
+    safe_name,
+    save_receipt,
+    save_signature,
+    signature_path,
+)
+from app.backend.services.hwpx import generate_hwpx
 from app.backend.services.store import SQLiteStore
+from app.backend.services.timeutils import iso_kst, stamp_kst
 from app.backend.services.validators import validate_settlement
-from app.backend.services.timeutils import iso_kst
 
 DATA_DIR = ROOT / "data"
+RECEIPTS_DIR = DATA_DIR / "receipts"
+SIGNATURE_DIR = DATA_DIR / "signature"
 OUTPUT_DIR = ROOT / "output"
 LOG_DIR = ROOT / "logs"
-for directory in (DATA_DIR, OUTPUT_DIR, LOG_DIR):
+TEMPLATE_PATH = ROOT / "template" / "여비정산서(양식).hwpx"
+
+for directory in (DATA_DIR, RECEIPTS_DIR, SIGNATURE_DIR, OUTPUT_DIR, LOG_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 STORE = SQLiteStore(DATA_DIR / "app.db")
@@ -35,8 +47,29 @@ def _json_bytes(value) -> bytes:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
+def _decode_base64(value: str) -> bytes:
+    if not value:
+        return b""
+    return base64.b64decode(value, validate=True)
+
+
+def _encode_file(path: Path) -> str:
+    return base64.b64encode(Path(path).read_bytes()).decode("ascii")
+
+
+def _settings() -> dict:
+    row = STORE.get("settings", "default")
+    if not row:
+        return {}
+    return dict(row.get("value") or {})
+
+
+def _save_settings(value: dict) -> None:
+    STORE.put("settings", {"id": "default", "value": value})
+
+
 class Handler(SimpleHTTPRequestHandler):
-    server_version = "TripExpenseHybrid/2.0-beta2.1"
+    server_version = "TripExpenseHybrid/2.0-beta2.2"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -45,7 +78,8 @@ class Handler(SimpleHTTPRequestHandler):
         stamp = iso_kst()
         line = f"[{stamp}] {self.client_address[0]} {fmt % args}\n"
         try:
-            (LOG_DIR / "server.log").open("a", encoding="utf-8").write(line)
+            with (LOG_DIR / "server.log").open("a", encoding="utf-8") as fp:
+                fp.write(line)
         except OSError:
             pass
 
@@ -79,9 +113,10 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/health":
             self._send_json({
                 "ok": True,
-                "version": "2.0-beta2.1",
+                "version": "2.0-beta2.2",
                 "time": iso_kst(),
                 "python": sys.version.split()[0],
+                "templateReady": TEMPLATE_PATH.is_file(),
             })
             return
 
@@ -91,7 +126,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not secrets.compare_digest(supplied, APP_TOKEN):
                 self._send_json({"ok": False, "error": "forbidden"}, HTTPStatus.FORBIDDEN)
                 return
-            self._send_json({"ok": True, "token": APP_TOKEN})
+            self._send_json({"ok": True, "token": APP_TOKEN, "templateReady": TEMPLATE_PATH.is_file()})
             return
 
         if path.startswith("/api/store/"):
@@ -147,7 +182,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             if path == "/api/excel/parse":
                 filename = str(payload.get("filename") or "출장목록.xlsx")
-                raw = base64.b64decode(payload.get("dataBase64") or "", validate=True)
+                raw = _decode_base64(payload.get("dataBase64") or "")
                 self._send_json({"ok": True, **parse_trip_file(filename, raw)})
                 return
 
@@ -157,6 +192,146 @@ class Handler(SimpleHTTPRequestHandler):
                     int(payload.get("receiptCount") or 0),
                 )
                 self._send_json({"ok": result.ok, "errors": result.errors})
+                return
+
+            if path == "/api/receipt/upload":
+                raw = _decode_base64(payload.get("dataBase64") or "")
+                if not raw:
+                    raise ValueError("영수증 파일 내용이 비어 있습니다.")
+                item = save_receipt(
+                    RECEIPTS_DIR,
+                    filename=str(payload.get("filename") or "receipt"),
+                    data=raw,
+                    mime_type=str(payload.get("mimeType") or ""),
+                )
+                item.update({
+                    "settlementId": str(payload.get("settlementId") or ""),
+                    "tripId": str(payload.get("tripId") or ""),
+                    "type": str(payload.get("type") or "기타"),
+                    "createdAt": iso_kst(),
+                    "storage": "python-file",
+                })
+                STORE.put("receipts", item)
+                self._send_json({"ok": True, "item": item})
+                return
+
+            if path == "/api/receipt/data":
+                item_id = str(payload.get("id") or "")
+                item = STORE.get("receipts", item_id)
+                if not item:
+                    raise ValueError("영수증 정보를 찾을 수 없습니다.")
+                file_path = receipt_path(RECEIPTS_DIR, item)
+                if not file_path.is_file():
+                    raise ValueError("영수증 파일을 찾을 수 없습니다.")
+                self._send_json({
+                    "ok": True,
+                    "id": item_id,
+                    "mimeType": item.get("mimeType") or "application/octet-stream",
+                    "fileName": item.get("fileName") or file_path.name,
+                    "dataBase64": _encode_file(file_path),
+                })
+                return
+
+            if path == "/api/receipt/delete":
+                item_id = str(payload.get("id") or "")
+                item = STORE.get("receipts", item_id)
+                if item:
+                    file_path = receipt_path(RECEIPTS_DIR, item)
+                    if file_path.is_file():
+                        file_path.unlink()
+                    STORE.delete("receipts", item_id)
+                self._send_json({"ok": True})
+                return
+
+            if path == "/api/signature/upload":
+                raw = _decode_base64(payload.get("dataBase64") or "")
+                if not raw:
+                    raise ValueError("서명 이미지 내용이 비어 있습니다.")
+                old_settings = _settings()
+                old_meta = old_settings.get("signatureFile") or {}
+                old_path = signature_path(SIGNATURE_DIR, old_meta) if old_meta else None
+
+                meta = save_signature(
+                    SIGNATURE_DIR,
+                    filename=str(payload.get("filename") or "signature.png"),
+                    data=raw,
+                )
+                meta["mimeType"] = str(payload.get("mimeType") or meta.get("mimeType") or "image/png")
+                meta["updatedAt"] = iso_kst()
+                old_settings["signatureFile"] = meta
+                old_settings["signatureDataUrl"] = ""
+                _save_settings(old_settings)
+
+                if old_path and old_path.is_file() and old_path != signature_path(SIGNATURE_DIR, meta):
+                    old_path.unlink()
+
+                self._send_json({"ok": True, "signatureFile": meta})
+                return
+
+            if path == "/api/signature/data":
+                settings = _settings()
+                meta = settings.get("signatureFile") or {}
+                if not meta:
+                    self._send_json({"ok": True, "signatureFile": None, "dataBase64": ""})
+                    return
+                file_path = signature_path(SIGNATURE_DIR, meta)
+                if not file_path.is_file():
+                    self._send_json({"ok": True, "signatureFile": None, "dataBase64": ""})
+                    return
+                self._send_json({
+                    "ok": True,
+                    "signatureFile": meta,
+                    "mimeType": meta.get("mimeType") or "image/png",
+                    "dataBase64": _encode_file(file_path),
+                })
+                return
+
+            if path == "/api/signature/delete":
+                settings = _settings()
+                meta = settings.pop("signatureFile", None) or {}
+                settings["signatureDataUrl"] = ""
+                if meta:
+                    file_path = signature_path(SIGNATURE_DIR, meta)
+                    if file_path.is_file():
+                        file_path.unlink()
+                _save_settings(settings)
+                self._send_json({"ok": True})
+                return
+
+            if path == "/api/hwpx/generate":
+                if not TEMPLATE_PATH.is_file():
+                    raise FileNotFoundError(
+                        "template/여비정산서(양식).hwpx 파일이 없습니다. 기준양식을 template 폴더에 넣어 주세요."
+                    )
+                settlement = dict(payload.get("settlement") or {})
+                receipt_count = int(payload.get("receiptCount") or 0)
+                km_rate = float(payload.get("kmRate") or 200)
+                check = validate_settlement(settlement, receipt_count=receipt_count)
+                if not check.ok:
+                    self._send_json({"ok": False, "errors": check.errors}, HTTPStatus.BAD_REQUEST)
+                    return
+
+                applicant = safe_name(str(settlement.get("name") or "신청인"))
+                date_key = str(settlement.get("settlementDate") or settlement.get("startDate") or "").replace("-", "")
+                filename = safe_name(f"여비정산서_{applicant}_{date_key or stamp_kst()}.hwpx")
+                target = OUTPUT_DIR / filename
+                if target.exists():
+                    target = OUTPUT_DIR / safe_name(
+                        f"여비정산서_{applicant}_{date_key or 'output'}_{stamp_kst()}.hwpx"
+                    )
+                generate_hwpx(
+                    template_path=TEMPLATE_PATH,
+                    output_path=target,
+                    settlement=settlement,
+                    receipt_count=receipt_count,
+                    km_rate=km_rate,
+                )
+                self._send_json({
+                    "ok": True,
+                    "filename": target.name,
+                    "savedPath": str(target),
+                    "dataBase64": _encode_file(target),
+                })
                 return
 
             if path == "/api/shutdown":
@@ -175,7 +350,7 @@ def serve(open_browser: bool = True) -> int:
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     host, port = server.server_address
     url = f"http://{host}:{port}/?token={APP_TOKEN}"
-    print(f"개인출장·여비정산 Hybrid v2.0-beta2.1")
+    print("개인출장·여비정산 Hybrid v2.0-beta2.2")
     print(f"URL: {url}")
     if open_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()
