@@ -41,7 +41,7 @@ jobs:
           Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip" -OutFile "$env:RUNNER_TEMP\python-embed.zip"
 
       - name: Build portable package
-        run: python tools/build_portable.py --python-embed "$env:RUNNER_TEMP\python-embed.zip" --name "개인출장_여비정산_Hybrid_v2"
+        run: python tools/build_portable.py --python-embed "$env:RUNNER_TEMP\python-embed.zip" --name "개인출장_여비정산_Hybrid_v2" --allow-missing-template
 
       - name: Upload portable ZIP
         uses: actions/upload-artifact@v4
