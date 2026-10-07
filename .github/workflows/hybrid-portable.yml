@@ -53,6 +53,7 @@ jobs:
         run: |
           & ".\dist\개인출장_여비정산_Hybrid_v2\create_desktop_shortcut.ps1" -Silent
           $desktop = [Environment]::GetFolderPath("Desktop")
+          if ([string]::IsNullOrWhiteSpace($desktop)) { $desktop = Join-Path $env:USERPROFILE "Desktop" }
           $link = Join-Path $desktop "개인출장 여비정산.lnk"
           $icon = ".\dist\개인출장_여비정산_Hybrid_v2\app.ico"
           if (-not (Test-Path $link)) { throw "Desktop shortcut was not created." }
