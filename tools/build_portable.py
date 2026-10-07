@@ -93,12 +93,61 @@ def verify_template(target: Path) -> None:
 
 
 def write_windows_launcher(target: Path) -> None:
-    content = (
+    shortcut_ps1 = r'''param([switch]$Silent)
+
+$ErrorActionPreference = "SilentlyContinue"
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pngPath = Join-Path $root "icons\\icon-192.png"
+$iconPath = Join-Path $root "app.ico"
+
+if (-not (Test-Path $iconPath) -and (Test-Path $pngPath)) {
+    try {
+        Add-Type -AssemblyName System.Drawing
+        $bmp = [System.Drawing.Bitmap]::FromFile($pngPath)
+        $hIcon = $bmp.GetHicon()
+        $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+        $stream = [System.IO.File]::Open($iconPath, [System.IO.FileMode]::Create)
+        $icon.Save($stream)
+        $stream.Close()
+        $icon.Dispose()
+        $bmp.Dispose()
+    } catch {
+        # Shortcut is still created with the default Windows icon.
+    }
+}
+
+$desktop = [Environment]::GetFolderPath("Desktop")
+$linkPath = Join-Path $desktop "개인출장 여비정산.lnk"
+$runPath = Join-Path $root "RUN.cmd"
+$wsh = New-Object -ComObject WScript.Shell
+$shortcut = $wsh.CreateShortcut($linkPath)
+$shortcut.TargetPath = $env:ComSpec
+$shortcut.Arguments = '/c ""' + $runPath + '""'
+$shortcut.WorkingDirectory = $root
+if (Test-Path $iconPath) {
+    $shortcut.IconLocation = $iconPath + ",0"
+}
+$shortcut.Description = "개인출장 여비정산 관리 프로그램"
+$shortcut.Save()
+
+if (-not $Silent) {
+    Write-Host "Desktop shortcut created:"
+    Write-Host $linkPath
+    Start-Sleep -Seconds 2
+}
+'''
+    (target / "create_desktop_shortcut.ps1").write_text(
+        shortcut_ps1,
+        encoding="utf-8-sig",
+    )
+
+    run_content = (
         '@echo off\r\n'
         'setlocal\r\n'
         'pushd "%~dp0"\r\n'
         'if errorlevel 1 goto :folder_error\r\n'
         '\r\n'
+        'if exist "%~dp0create_desktop_shortcut.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0create_desktop_shortcut.ps1" -Silent >nul 2>nul\r\n'
         'if not exist "%~dp0runtime\\python.exe" goto :runtime_error\r\n'
         'if not exist "%~dp0launcher.py" goto :launcher_error\r\n'
         '\r\n'
@@ -130,9 +179,22 @@ def write_windows_launcher(target: Path) -> None:
         'pause\r\n'
         'exit /b 1\r\n'
     )
-    (target / "RUN.cmd").write_text(content, encoding="ascii", newline="")
-    (target / "start_windows.bat").write_text('@echo off\r\ncall "%~dp0RUN.cmd"\r\n', encoding="ascii", newline="")
-    (target / "실행_개인출장여비정산.bat").write_text('@echo off\r\ncall "%~dp0RUN.cmd"\r\n', encoding="ascii", newline="")
+    (target / "RUN.cmd").write_text(run_content, encoding="ascii", newline="")
+    (target / "start_windows.bat").write_text(
+        '@echo off\r\ncall "%~dp0RUN.cmd"\r\n',
+        encoding="ascii",
+        newline="",
+    )
+    (target / "실행_개인출장여비정산.bat").write_text(
+        '@echo off\r\ncall "%~dp0RUN.cmd"\r\n',
+        encoding="ascii",
+        newline="",
+    )
+    (target / "바탕화면_바로가기_만들기.cmd").write_text(
+        '@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0create_desktop_shortcut.ps1"\r\n',
+        encoding="ascii",
+        newline="",
+    )
 
 
 def make_zip(folder: Path) -> Path:
