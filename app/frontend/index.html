@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#1f4b99" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<title>개인출장·여비정산 Hybrid v2.0-RC1</title>
+<title>개인출장·여비정산 Hybrid v2.0-RC1.2.2</title>
 <style>
   :root{
     --bg:#f5f7fb; --card:#ffffff; --line:#d9e1ec; --text:#1f2937; --muted:#6b7280;
@@ -317,7 +317,7 @@
 <body>
 <header class="program-titlebar">
   <div>
-    <h1>개인출장 · 여비정산 관리 프로그램 <span class="version-tag">v2.0-RC1</span></h1>
+    <h1>개인출장 · 여비정산 관리 프로그램 <span class="version-tag">v2.0-RC1.2.2</span></h1>
     <div class="sub">출장 등록 → 정산 작성 → 증빙 등록 → 출력의 업무 흐름에 맞춘 Python 하이브리드 프로그램</div>
   </div>
   <div class="titlebar-actions">
@@ -365,7 +365,7 @@
 <div class="modal-backdrop hidden" id="helpModal" aria-hidden="true">
   <div class="modal-panel">
     <div class="modal-head">
-      <h2>사용방법 · v2.0-RC1 하이브리드판</h2>
+      <h2>사용방법 · v2.0-RC1.2.2 하이브리드판</h2>
       <button class="btn secondary" id="helpCloseTopBtn" type="button">닫기</button>
     </div>
     <div class="manual-grid">
@@ -447,6 +447,7 @@
     },
     activeTab: 'dashboard',
     tripFilter: '',
+    settlementListMode: 'required',
     selectedTripId: '',
     selectedSettlementId: '',
     calendarCursor: new Date(),
@@ -684,40 +685,38 @@
     updateTopIndicators();
   }
   function validateSettlement(settlement){
-    const issues = [];
-    if(!settlement) return issues;
-    if(!String(settlement.name || '').trim()) issues.push('성명이 비어 있습니다.');
-    if(!String(settlement.position || '').trim()) issues.push('직급이 비어 있습니다.');
-    if(!String(settlement.startDate || '').trim()) issues.push('시작일이 비어 있습니다.');
-    if(!String(settlement.destination || '').trim()) issues.push('출장지가 비어 있습니다.');
-    if(!String(settlement.movementMode || '').trim()) issues.push('출장지 옆의 이동구분에서 자가용 또는 대중교통을 선택해 주세요.');
-    if(!String(settlement.routeType || '').trim()) issues.push('출장지 옆의 왕복/편도 구분을 선택해 주세요.');
-    if(!String(settlement.mealProvidedFlag || '').trim()) issues.push('식사 제공 여부를 선택해 주세요.');
-    if(!String(settlement.receiptMode || '').trim()) issues.push('영수증 처리 방식을 선택해 주세요.');
-    if(settlement.status === 'done' && !String(settlement.settlementDate || '').trim()) issues.push('정산완료 상태인 경우 정산일자를 입력해 주세요.');
-    (settlement.privateCars || []).forEach((row, idx) => {
-      const hasAny = [row.date,row.from,row.to,row.km,row.fuel,row.toll,row.parking,row.other,row.manualAmount,row.driver,row.remark].some(v => String(v || '').trim() !== '');
-      if(!hasAny) return;
-      if(!String(row.from || '').trim()) issues.push(`자가용 ${idx+1}행의 출발지가 비어 있습니다.`);
-      if(!String(row.to || '').trim()) issues.push(`자가용 ${idx+1}행의 도착지가 비어 있습니다.`);
-    });
-    (settlement.publicTransport || []).forEach((row, idx) => {
-      const hasAny = [row.date,row.transport,row.from,row.to,row.grade,row.amount,row.remark].some(v => String(v || '').trim() !== '');
-      if(!hasAny) return;
-      if(!String(row.from || '').trim()) issues.push(`대중교통 ${idx+1}행의 출발지가 비어 있습니다.`);
-      if(!String(row.to || '').trim()) issues.push(`대중교통 ${idx+1}행의 도착지가 비어 있습니다.`);
-    });
-    if(settlement.movementMode === 'private' && !(settlement.privateCars || []).length){
-      issues.push('이동구분이 자가용인데 자가용 운임 행이 없습니다.');
-    }
-    if(settlement.movementMode === 'public' && !(settlement.publicTransport || []).length){
-      issues.push('이동구분이 대중교통인데 대중교통 행이 없습니다.');
-    }
-    if(settlement.receiptMode === 'attached' && receiptsBySettlement(settlement.id).length === 0){
-      issues.push('영수증을 프로그램에 첨부한다고 선택했지만, 첨부된 영수증이 없습니다.');
-    }
-    return issues;
+  const issues = [];
+  if(!settlement) return issues;
+  if(!String(settlement.name || '').trim()) issues.push('성명이 비어 있습니다.');
+  if(!String(settlement.startDate || '').trim()) issues.push('시작일이 비어 있습니다.');
+  if(!String(settlement.destination || '').trim()) issues.push('출장지가 비어 있습니다.');
+  if(settlement.status === 'exempt') return issues;
+  if(isIntracityTripLike(settlement) && !String(settlement.exceptionReason || '').trim()){
+    issues.push('관내출장을 예외적으로 정산하는 사유를 입력해 주세요.');
   }
+  if(!String(settlement.position || '').trim()) issues.push('직급이 비어 있습니다.');
+  if(!String(settlement.movementMode || '').trim()) issues.push('출장지 옆의 이동구분에서 자가용 또는 대중교통을 선택해 주세요.');
+  if(!String(settlement.routeType || '').trim()) issues.push('출장지 옆의 왕복/편도 구분을 선택해 주세요.');
+  if(!String(settlement.mealProvidedFlag || '').trim()) issues.push('식사 제공 여부를 선택해 주세요.');
+  if(!String(settlement.receiptMode || '').trim()) issues.push('영수증 처리 방식을 선택해 주세요.');
+  if(settlement.status === 'done' && !String(settlement.settlementDate || '').trim()) issues.push('정산완료 상태인 경우 정산일자를 입력해 주세요.');
+  (settlement.privateCars || []).forEach((row, idx) => {
+    const hasAny = [row.date,row.from,row.to,row.km,row.fuel,row.toll,row.parking,row.other,row.manualAmount,row.driver,row.remark].some(v => String(v || '').trim() !== '');
+    if(!hasAny) return;
+    if(!String(row.from || '').trim()) issues.push(`자가용 ${idx+1}행의 출발지가 비어 있습니다.`);
+    if(!String(row.to || '').trim()) issues.push(`자가용 ${idx+1}행의 도착지가 비어 있습니다.`);
+  });
+  (settlement.publicTransport || []).forEach((row, idx) => {
+    const hasAny = [row.date,row.transport,row.from,row.to,row.grade,row.amount,row.remark].some(v => String(v || '').trim() !== '');
+    if(!hasAny) return;
+    if(!String(row.from || '').trim()) issues.push(`대중교통 ${idx+1}행의 출발지가 비어 있습니다.`);
+    if(!String(row.to || '').trim()) issues.push(`대중교통 ${idx+1}행의 도착지가 비어 있습니다.`);
+  });
+  if(settlement.movementMode === 'private' && !(settlement.privateCars || []).length) issues.push('이동구분이 자가용인데 자가용 운임 행이 없습니다.');
+  if(settlement.movementMode === 'public' && !(settlement.publicTransport || []).length) issues.push('이동구분이 대중교통인데 대중교통 행이 없습니다.');
+  if(settlement.receiptMode === 'attached' && receiptsBySettlement(settlement.id).length === 0) issues.push('영수증을 프로그램에 첨부한다고 선택했지만, 첨부된 영수증이 없습니다.');
+  return issues;
+}
 
   async function openDB(){
     const health = await apiFetch('/api/health');
@@ -936,6 +935,9 @@
     }
     if(settlement.includeReceiptIndex === undefined || settlement.includeReceiptIndex === null) settlement.includeReceiptIndex = false;
     if(settlement.settlementDate === undefined || settlement.settlementDate === null) settlement.settlementDate = '';
+    if(settlement.exceptionReason === undefined || settlement.exceptionReason === null) settlement.exceptionReason = '';
+    if(settlement.lodgingSharedApplicant === undefined || settlement.lodgingSharedApplicant === null) settlement.lodgingSharedApplicant = '';
+    if(!settlement.tripScope) settlement.tripScope = tripScopeFromType(settlement.tripType);
     if(!settlement.movementMode) settlement.movementMode = inferMovementMode(settlement);
     if(!settlement.routeType) settlement.routeType = inferRouteType(settlement);
     settlement.privateCars = (settlement.privateCars || []).map(normalizePrivateCarRow);
@@ -1042,14 +1044,18 @@
     return 'wait';
   }
   function settlementAutoNote(trip){
-    const notes = [];
-    if(trip.tripType) notes.push(`출장종류: ${trip.tripType}`);
-    if(trip.vehicleUse) notes.push(`공용차량 이용여부: ${trip.vehicleUse}`);
-    if(trip.approvalStatus) notes.push(`결재상태: ${trip.approvalStatus}`);
-    if(trip.durationText) notes.push(`원본 기간표시: ${trip.durationText}`);
-    if(trip.settlementRequired === false) notes.push('원본 출장목적에 "여비부지급" 문구가 있어 정산 상태를 정산불요로 두었습니다.');
-    return notes.join('\n');
+  const notes = [];
+  if(trip.tripType) notes.push(`출장종류: ${trip.tripType}`);
+  if(trip.vehicleUse) notes.push(`공용차량 이용여부: ${trip.vehicleUse}`);
+  if(trip.approvalStatus) notes.push(`결재상태: ${trip.approvalStatus}`);
+  if(trip.durationText) notes.push(`원본 기간표시: ${trip.durationText}`);
+  if(trip.settlementPolicy === 'intra_default_exempt' || tripScopeFromType(trip.tripType) === 'intra'){
+    notes.push('관내출장은 특별한 사유가 없는 경우 정산불요로 기본 처리합니다.');
+  }else if(trip.settlementPolicy === 'no_expense' || /여비\s*부지급|정산\s*불요|여비없음/.test(String(trip.purpose || ''))){
+    notes.push('여비부지급/정산불요 문구가 있어 정산불요로 처리합니다.');
   }
+  return notes.join('\n');
+}
 
   function createDefaultSettlementFromTrip(trip){
     const rangeText = [trip.startDate ? ymdToKorean(trip.startDate) : '', trip.startTime || '', trip.endDate ? ymdToKorean(trip.endDate) : '', trip.endTime || ''].filter(Boolean).join(' ');
@@ -1081,8 +1087,10 @@
       lodgingActual: '',
       lodgingFriendNights: '',
       lodgingSharedNights: '',
+      lodgingSharedApplicant: '',
       lodgingOverReason: '',
       applicantNote: autoNote,
+      exceptionReason: '',
       otherExpense: '',
       privateCars,
       publicTransport: [],
@@ -1091,6 +1099,8 @@
       updatedAt: nowStamp(),
       rangeText,
       tripType: trip.tripType || '',
+      tripScope: trip.tripScope || tripScopeFromType(trip.tripType),
+      settlementPolicy: trip.settlementPolicy || (trip.settlementRequired === false ? 'intra_default_exempt' : 'inter_required'),
       vehicleUse: trip.vehicleUse || '',
       approvalStatus: trip.approvalStatus || ''
     };
@@ -1108,16 +1118,24 @@
   }
 
   function filteredTrips(){
-    const kw = state.tripFilter.trim();
-    let rows = [...state.trips];
-    if(state.dayFilter){
-      rows = rows.filter(t => dateInRange(state.dayFilter, t.startDate, t.endDate));
-    }
-    if(kw){
-      rows = rows.filter(t => [t.name,t.position,t.purpose,t.destination,t.dept,t.startDate].join(' ').includes(kw));
-    }
-    return rows;
+  const kw = state.tripFilter.trim();
+  let rows = [...state.trips];
+  if(state.settlementListMode === 'required'){
+    rows = rows.filter(t => {
+      const s = tripSettlement(t.id);
+      return !s || s.status !== 'exempt';
+    });
+  }else if(state.settlementListMode === 'exempt'){
+    rows = rows.filter(t => tripSettlement(t.id)?.status === 'exempt');
   }
+  if(state.dayFilter){
+    rows = rows.filter(t => dateInRange(state.dayFilter, t.startDate, t.endDate));
+  }
+  if(kw){
+    rows = rows.filter(t => [t.name,t.position,t.purpose,t.destination,t.dept,t.startDate,t.tripType].join(' ').includes(kw));
+  }
+  return rows;
+}
 
   function renderDashboard(){
     const totalTrips = state.trips.length;
@@ -1151,8 +1169,8 @@
         <div class="stats">
           <div class="stat"><div class="label">총 출장 건수</div><div class="value">${totalTrips}</div><small>등록된 출장</small></div>
           <div class="stat"><div class="label">정산 완료</div><div class="value">${completed}</div><small>상태값 기준</small></div>
-          <div class="stat"><div class="label">정산 불요</div><div class="value">${exemptCount}</div><small>여비부지급 등</small></div>
-          <div class="stat"><div class="label">미정산</div><div class="value">${pending}</div><small>정산 필요</small></div>
+          <div class="stat"><div class="label">정산 불요</div><div class="value">${exemptCount}</div><small>관내 기본·여비부지급</small></div>
+          <div class="stat"><div class="label">미정산</div><div class="value">${pending}</div><small>관외 중심 정산대상</small></div>
           <div class="stat"><div class="label">기한 경과</div><div class="value">${overdueCount}</div><small>종료일+5일 기준</small></div>
           <div class="stat"><div class="label">첨부 영수증</div><div class="value">${receiptCount}</div><small>이미지·PDF 기준</small></div>
         </div>
@@ -1258,6 +1276,7 @@
               <div><label>성명</label><input type="text" id="mName" value="${escapeHtml(state.settings.defaultApplicant || '')}"></div>
               <div><label>복수출장자</label><input type="text" id="mCoTravelers" placeholder="예: 홍길동, 김철수"></div>
               <div><label>근무지</label><input type="text" id="mWorkplace" value="${escapeHtml(state.settings.defaultWorkplace || '')}"></div>
+              <div><label>출장구분</label><select id="mTripType"><option value="관외출장" selected>관외출장(정산대상)</option><option value="관내출장">관내출장(기본 미정산)</option><option value="기타">기타/확인필요</option></select></div>
               <div><label>시작일</label><input type="date" id="mStartDate" value="${today()}"></div>
               <div><label>시작시간</label><input type="time" id="mStartTime" value="09:00"></div>
               <div><label>종료일</label><input type="date" id="mEndDate" value="${today()}"></div>
@@ -1283,8 +1302,13 @@
     $('#goSettingsBtn')?.addEventListener('click', () => { state.activeTab='settings'; render(); });
     $('#manualAddToggleBtn')?.addEventListener('click', () => $('#manualTripBox').classList.toggle('hidden'));
     $('#manualSaveBtn')?.addEventListener('click', async () => {
-      const trip = {id:uid('trip'), dept:$('#mDept').value.trim(), workplace:$('#mWorkplace').value.trim(), position:$('#mPosition').value.trim(), name:$('#mName').value.trim(), coTravelers:$('#mCoTravelers').value.trim(), startDate:$('#mStartDate').value, startTime:$('#mStartTime').value, endDate:$('#mEndDate').value, endTime:$('#mEndTime').value, destination:$('#mDestination').value.trim(), purpose:$('#mPurpose').value.trim(), mealProvided:$('#mMeals').value.trim(), mealProvidedFlag:$('#mMealsFlag').value, mealProvidedNote:$('#mMeals').value.trim(), source:'manual', createdAt:nowStamp(), updatedAt:nowStamp()};
+      const trip = {id:uid('trip'), dept:$('#mDept').value.trim(), workplace:$('#mWorkplace').value.trim(), position:$('#mPosition').value.trim(), name:$('#mName').value.trim(), coTravelers:$('#mCoTravelers').value.trim(), startDate:$('#mStartDate').value, startTime:$('#mStartTime').value, endDate:$('#mEndDate').value, endTime:$('#mEndTime').value, destination:$('#mDestination').value.trim(), purpose:$('#mPurpose').value.trim(), mealProvided:$('#mMeals').value.trim(), mealProvidedFlag:$('#mMealsFlag').value, mealProvidedNote:$('#mMeals').value.trim(), tripType:$('#mTripType').value, source:'manual', createdAt:nowStamp(), updatedAt:nowStamp()};
       if(!trip.name || !trip.startDate || !trip.destination || !trip.mealProvidedFlag){ alert('성명, 시작일, 출장지, 식사 제공 여부는 입력해 주세요.'); return; }
+      trip.tripScope = tripScopeFromType(trip.tripType);
+      trip.settlementRequired = needsSettlement(trip);
+      trip.settlementPolicy = /여비\s*부지급|정산\s*불요|여비없음/.test(String(trip.purpose || ''))
+        ? 'no_expense'
+        : (trip.tripScope === 'intra' ? 'intra_default_exempt' : trip.tripScope === 'inter' ? 'inter_required' : 'unknown_review');
       state.trips.unshift(trip); await dbPut('trips', trip);
       const settlement=createDefaultSettlementFromTrip(trip); settlement.workplace=trip.workplace || state.settings.defaultWorkplace || ''; state.settlements.push(settlement); await dbPut('settlements', settlement);
       state.selectedTripId=trip.id; state.selectedSettlementId=settlement.id; markSaved(settlement); alert('출장과 정산 초안을 저장했습니다.'); state.activeTab='settlement'; render();
@@ -1442,9 +1466,19 @@
     if(!s) return true;
     return /완결|승인|결재완료/.test(s);
   }
+  function tripScopeFromType(value){
+  const s = String(value || '').replace(/\s+/g,'');
+  if(s.includes('관내')) return 'intra';
+  if(s.includes('관외')) return 'inter';
+  return 'unknown';
+}
+  function isIntracityTripLike(value){
+  return String(value?.tripScope || '') === 'intra' || tripScopeFromType(value?.tripType) === 'intra';
+}
   function needsSettlement(trip){
-    return !/여비\s*부지급|정산\s*불요|여비없음/.test(String(trip.purpose || ''));
-  }
+  if(/여비\s*부지급|정산\s*불요|여비없음/.test(String(trip.purpose || ''))) return false;
+  return !isIntracityTripLike(trip);
+}
 
   function rowToTrip(row, mapping, fileName){
     const rawPeriod = mapping.period !== undefined ? row[mapping.period] : '';
@@ -1481,7 +1515,11 @@
       createdAt: nowStamp(),
       updatedAt: nowStamp()
     };
+    trip.tripScope = tripScopeFromType(trip.tripType);
     trip.settlementRequired = needsSettlement(trip);
+    trip.settlementPolicy = /여비\s*부지급|정산\s*불요|여비없음/.test(String(trip.purpose || ''))
+      ? 'no_expense'
+      : (trip.tripScope === 'intra' ? 'intra_default_exempt' : trip.tripScope === 'inter' ? 'inter_required' : 'unknown_review');
     return trip;
   }
 
@@ -1642,6 +1680,11 @@
           <div class="toolbar">
             <h2>출장 목록</h2>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <select id="settlementListMode" style="min-width:190px">
+                <option value="required" ${state.settlementListMode==='required'?'selected':''}>정산대상 중심(관외)</option>
+                <option value="all" ${state.settlementListMode==='all'?'selected':''}>전체 출장</option>
+                <option value="exempt" ${state.settlementListMode==='exempt'?'selected':''}>정산불요만</option>
+              </select>
               <input type="search" id="tripFilterInput" placeholder="성명, 출장지, 목적 검색" value="${escapeHtml(state.tripFilter)}">
               <button class="btn secondary" id="clearDayFilterBtn" ${state.dayFilter ? '' : 'disabled'}>${state.dayFilter ? escapeHtml(state.dayFilter)+' 필터 해제' : '일자 필터 없음'}</button>
             </div>
@@ -1664,6 +1707,7 @@
             <div class="success" style="margin-bottom:12px">
               출장자 <b>${escapeHtml(trip.name)}</b>, 출장일 <b>${escapeHtml(ymdToKorean(trip.startDate))}</b>, 출장지 <b>${escapeHtml(trip.destination)}</b> 기준 정산서입니다.${trip.tripType ? ` <span class="small">(${escapeHtml(trip.tripType)})</span>` : ""}
             </div>
+            <div class="notice" style="margin-bottom:12px"><b>정산 기준:</b> 관내출장은 특별한 사유가 없는 경우 기본 미정산(정산불요), 관외출장은 정산대상 중심으로 관리합니다. 관내를 예외적으로 정산할 때는 아래 예외 사유를 입력합니다.</div>
             <div class="settlement-hint">
               <div class="steps">
                 사용 순서: <b>출장 선택 → 정산 입력 → 정산 저장 → 영수증 첨부 → 출력</b><br>
@@ -1738,7 +1782,8 @@
                   </div>
                 </div>
               </div>
-              <div><label>출장종류</label><input type="text" data-field="tripType" value="${escapeHtml(settlement.tripType || '')}"></div>
+              <div><label>출장종류</label><input type="text" data-field="tripType" value="${escapeHtml(settlement.tripType || '')}" placeholder="관외출장 / 관내출장"></div>
+              <div class="full"><label>관내 예외 정산 사유 <span class="small">(관내를 정산할 때만 필수)</span></label><textarea data-field="exceptionReason" placeholder="예: 관내 이동이지만 실비 정산이 필요한 특별 사유">${escapeHtml(settlement.exceptionReason || '')}</textarea></div>
               <div><label>공용차량 이용여부</label><input type="text" data-field="vehicleUse" value="${escapeHtml(settlement.vehicleUse || '')}"></div>
               <div><label>결재상태</label><input type="text" data-field="approvalStatus" value="${escapeHtml(settlement.approvalStatus || '')}"></div>
               <div><label>식사 제공 여부 <span class="small">(필수)</span></label><select data-field="mealProvidedFlag"><option value="" ${!settlement.mealProvidedFlag ? 'selected' : ''}>선택</option><option value="yes" ${settlement.mealProvidedFlag==='yes' ? 'selected' : ''}>제공</option><option value="no" ${settlement.mealProvidedFlag==='no' ? 'selected' : ''}>미제공</option></select></div>
@@ -1750,6 +1795,7 @@
               <div><label>숙박비 실제 소요액</label><input type="number" data-field="lodgingActual" value="${escapeHtml(settlement.lodgingActual)}"></div>
               <div><label>친지집 등 숙박(박)</label><input type="number" data-field="lodgingFriendNights" value="${escapeHtml(settlement.lodgingFriendNights)}"></div>
               <div><label>공동숙박(박)</label><input type="number" data-field="lodgingSharedNights" value="${escapeHtml(settlement.lodgingSharedNights)}"></div>
+              <div><label>공동숙박 추가지급 신청자</label><input type="text" data-field="lodgingSharedApplicant" value="${escapeHtml(settlement.lodgingSharedApplicant || '')}"></div>
               <div class="full"><label>초과지출/추가지급 사유</label><textarea data-field="lodgingOverReason">${escapeHtml(settlement.lodgingOverReason)}</textarea></div>
             </div>
 
@@ -1805,12 +1851,12 @@
             </div>
 
             <div class="form-grid" style="margin-top:14px">
-              <div><label>기타 경비</label><input type="number" data-field="otherExpense" value="${escapeHtml(settlement.otherExpense)}"></div>
+              <div><label>기타 경비 <span class="small">(관리용·공식 HWPX 미출력)</span></label><input type="number" data-field="otherExpense" value="${escapeHtml(settlement.otherExpense)}"></div>
               <div><label>정산상태</label>
                 <select data-field="status">
-                  <option value="draft" ${settlement.status==='draft'?'selected':''}>미정산</option>
+                  <option value="draft" ${settlement.status==='draft'?'selected':''}>정산대상(작성중)</option>
                   <option value="done" ${settlement.status==='done'?'selected':''}>정산완료</option>
-                  <option value="exempt" ${settlement.status==='exempt'?'selected':''}>정산불요</option>
+                  <option value="exempt" ${settlement.status==='exempt'?'selected':''}>정산불요(관내 기본·여비부지급)</option>
                 </select>
               </div>
               <div class="full"><label>신청자 메모</label><textarea data-field="applicantNote">${escapeHtml(settlement.applicantNote)}</textarea></div>
@@ -1839,6 +1885,7 @@
       </div>
     `;
 
+    $('#settlementListMode')?.addEventListener('change', e => { state.settlementListMode = e.target.value; renderSettlement(); });
     $('#tripFilterInput')?.addEventListener('input', e => { state.tripFilter = e.target.value; renderSettlement(); });
     $('#clearDayFilterBtn')?.addEventListener('click', () => { state.dayFilter=''; renderSettlement(); });
     $$('.list-item[data-trip-id]').forEach(el => el.addEventListener('click', async () => {
@@ -1860,11 +1907,12 @@
           if(key === 'mealProvidedFlag' || key === 'mealProvidedNote'){
             settlement.mealProvided = mealProvidedLabel(settlement);
           }
+          if(key === 'tripType') settlement.tripScope = tripScopeFromType(settlement.tripType);
           if(key === 'status' && settlement.status === 'done' && !settlement.settlementDate){
             settlement.settlementDate = today();
           }
           const transportLinkedKeys = ['movementMode','routeType','destination','workplace','startDate','name'];
-          const rerenderOnChangeKeys = ['movementMode','routeType','status','settlementDate','endDate'];
+          const rerenderOnChangeKeys = ['movementMode','routeType','status','settlementDate','endDate','tripType'];
           if(transportLinkedKeys.includes(key)){
             ensureTransportRowsForRoute(settlement);
           }
@@ -1959,7 +2007,7 @@
         }
         await dbPut('settlements', settlement);
         markSaved(settlement);
-        alert('정산서를 저장했습니다.');
+        alert(settlement.status === 'exempt' ? '정산불요 상태를 저장했습니다.' : '정산서를 저장했습니다.');
         render();
       });
       $('#jumpReceiptBtn')?.addEventListener('click', () => {
@@ -1970,6 +2018,7 @@
       });
       $('#printSettlementBtn')?.addEventListener('click', async () => {
         syncSettlementFromForm(settlement);
+        if(settlement.status === 'exempt'){ alert('정산불요 건은 여비정산서를 출력하지 않습니다.'); return; }
         const issues = validateSettlement(settlement);
         if(issues.length){
           alert('출력 전에 아래 항목을 확인해 주세요.\n\n- ' + issues.join('\n- '));
@@ -1981,6 +2030,8 @@
       });
       $('#downloadHwpxBtn')?.addEventListener('click', async () => {
         syncSettlementFromForm(settlement);
+        if(settlement.status === 'exempt'){ alert('정산불요 건은 HWPX 정산서를 생성하지 않습니다.'); return; }
+        if(!String(settlement.settlementDate || '').trim()){ alert('HWPX 생성 전 정산일자를 입력해 주세요.'); return; }
         const issues = validateSettlement(settlement);
         if(issues.length){
           alert('HWPX 생성 전에 아래 항목을 확인해 주세요.\n\n- ' + issues.join('\n- '));
@@ -2310,7 +2361,7 @@
     await dbClear('settlements');
     await apiFetch('/api/signature/delete', {method:'POST'}).catch(()=>{});
     state.trips=[]; state.settlements=[]; state.receipts=[];
-    state.settings = {orgName:'교육과', kmRate:200, defaultApplicant:'', defaultPosition:'', defaultWorkplace:'', signatureDataUrl:'', receiptRequiredTypes:'주유/하이패스/기타', note:'하이브리드 v2.0-RC1'};
+    state.settings = {orgName:'교육과', kmRate:200, defaultApplicant:'', defaultPosition:'', defaultWorkplace:'', signatureDataUrl:'', receiptRequiredTypes:'주유/하이패스/기타', note:'하이브리드 v2.0-RC1.2.2'};
     await saveSettings();
     state.selectedTripId=''; state.selectedSettlementId=''; state.receiptFilterSettlementId='';
     state.ui.dirty=false; state.ui.dirtySettlementId=''; state.ui.lastSavedAt=nowStamp();
