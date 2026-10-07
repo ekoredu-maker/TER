@@ -124,7 +124,7 @@ if (-not (Test-Path $desktop)) {
     New-Item -ItemType Directory -Path $desktop -Force | Out-Null
 }
 
-$linkPath = Join-Path $desktop "개인출장 여비정산.lnk"
+$linkPath = Join-Path $desktop "TER Travel Expense.lnk"
 $runPath = Join-Path $root "RUN.cmd"
 $iconPath = Join-Path $root "app.ico"
 
