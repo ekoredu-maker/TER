@@ -166,8 +166,8 @@ def main() -> int:
     write_windows_launcher(target)
 
     zip_path = make_zip(target)
-    print(f"PORTABLE_FOLDER={target}")
-    print(f"PORTABLE_ZIP={zip_path}")
+    print("PORTABLE_BUILD_OK")
+    print(f"ZIP_SIZE={zip_path.stat().st_size}")
     return 0
 
 
