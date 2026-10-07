@@ -1996,8 +1996,10 @@ const DB_NAME = 'trip_settlement_manager_v1';
         <div class="card">
           <h2>전체 데이터 백업</h2>
           <div class="notice">
-            출장, 정산, 영수증, 기본 설정을 하나의 JSON 파일로 내려받습니다.
-            동일한 브라우저 환경이 아니어도 복원 탭에서 다시 불러올 수 있습니다.
+            ${window.HybridAPI && window.HybridAPI.authenticated
+              ? '출장, 정산, 영수증 원본파일, 서명, 기본 설정을 하나의 ZIP 파일로 내려받습니다.'
+              : '출장, 정산, 영수증, 기본 설정을 하나의 JSON 파일로 내려받습니다.'}
+            동일한 프로그램 환경에서 복원할 수 있습니다.
           </div>
           <div class="btn-row" style="margin-top:12px">
             <button class="btn ok" id="downloadBackupBtn">백업 파일 다운로드</button>
@@ -2006,14 +2008,14 @@ const DB_NAME = 'trip_settlement_manager_v1';
         <div class="card">
           <h2>데이터 복원 / 초기화</h2>
           <div class="form-grid">
-            <div class="full"><label>백업 JSON 파일 선택</label><input type="file" id="restoreFile" accept=".json"></div>
+            <div class="full"><label>백업 파일 선택</label><input type="file" id="restoreFile" accept="${window.HybridAPI && window.HybridAPI.authenticated ? '.zip' : '.json'}"></div>
           </div>
           <div class="btn-row" style="margin-top:12px">
             <button class="btn warn" id="restoreBtn">선택 파일로 복원</button>
             <button class="btn danger" id="resetAllBtn">전체 초기화</button>
           </div>
           <div class="info" style="margin-top:12px">
-            복원 시 현재 브라우저의 기존 데이터는 모두 교체됩니다.
+            복원 시 현재 데이터는 모두 교체됩니다. 하이브리드 모드에서는 영수증·서명 실제 파일도 함께 복원됩니다.
           </div>
         </div>
       </div>
@@ -2025,6 +2027,15 @@ const DB_NAME = 'trip_settlement_manager_v1';
   }
 
   async function downloadBackup(){
+    if(window.HybridAPI && window.HybridAPI.authenticated){
+      try{
+        await window.HybridAPI.createBackup();
+        alert('ZIP 백업을 생성했습니다.');
+      }catch(err){
+        alert('백업 생성 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+      }
+      return;
+    }
     const payload = {
       exportedAt: nowStamp(),
       settings: state.settings,
@@ -2042,6 +2053,25 @@ const DB_NAME = 'trip_settlement_manager_v1';
 
   async function restoreBackup(){
     const file = $('#restoreFile').files?.[0];
+    if(window.HybridAPI && window.HybridAPI.authenticated){
+      if(!file){
+        alert('복원할 ZIP 파일을 선택해 주세요.');
+        return;
+      }
+      if(!confirm('현재 데이터를 모두 지우고 ZIP 백업으로 교체합니다. 계속할까요?')) return;
+      try{
+        await window.HybridAPI.restoreBackup(file);
+        await loadState();
+        state.ui.dirty = false;
+        state.ui.dirtySettlementId = '';
+        state.ui.lastSavedAt = nowStamp();
+        alert('ZIP 백업을 복원했습니다.');
+        render();
+      }catch(err){
+        alert('복원 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+      }
+      return;
+    }
     if(!file){
       alert('복원할 JSON 파일을 선택해 주세요.');
       return;
@@ -2067,6 +2097,36 @@ const DB_NAME = 'trip_settlement_manager_v1';
 
   async function resetAllData(){
     if(!confirm('모든 출장, 정산, 영수증 데이터를 삭제할까요?')) return;
+    if(window.HybridAPI && window.HybridAPI.authenticated){
+      try{
+        await window.HybridAPI.resetAll();
+        state.trips = [];
+        state.settlements = [];
+        state.receipts = [];
+        state.settings = {
+          orgName:'교육과',
+          kmRate:200,
+          defaultApplicant:'',
+          defaultPosition:'',
+          defaultWorkplace:'',
+          signatureDataUrl:'',
+          signatureFile:null,
+          receiptRequiredTypes:'주유/하이패스/기타',
+          note:''
+        };
+        state.selectedTripId = '';
+        state.selectedSettlementId = '';
+        state.receiptFilterSettlementId = '';
+        state.ui.dirty = false;
+        state.ui.dirtySettlementId = '';
+        state.ui.lastSavedAt = nowStamp();
+        alert('전체 데이터를 초기화했습니다.');
+        render();
+      }catch(err){
+        alert('초기화 중 오류가 발생했습니다.\n' + (err?.message || String(err)));
+      }
+      return;
+    }
     await Promise.all(STORES.map(s => dbClear(s)));
     state.trips = [];
     state.settlements = [];
