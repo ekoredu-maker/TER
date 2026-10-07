@@ -93,25 +93,46 @@ def verify_template(target: Path) -> None:
 
 
 def write_windows_launcher(target: Path) -> None:
-    bat = target / "실행_개인출장여비정산.bat"
-    bat.write_text(
-        "@echo off\n"
-        "setlocal\n"
-        "cd /d \"%~dp0\"\n"
-        "if not exist \"runtime\\python.exe\" (\n"
-        "  echo [오류] runtime\\python.exe를 찾을 수 없습니다.\n"
-        "  pause\n"
-        "  exit /b 1\n"
-        ")\n"
-        "\"runtime\\python.exe\" launcher.py\n"
-        "if errorlevel 1 (\n"
-        "  echo.\n"
-        "  echo 프로그램 실행 중 오류가 발생했습니다. logs 폴더를 확인해 주세요.\n"
-        "  pause\n"
-        ")\n"
-        "endlocal\n",
-        encoding="utf-8-sig",
+    content = (
+        '@echo off\r\n'
+        'setlocal\r\n'
+        'pushd "%~dp0"\r\n'
+        'if errorlevel 1 goto :folder_error\r\n'
+        '\r\n'
+        'if not exist "%~dp0runtime\\python.exe" goto :runtime_error\r\n'
+        'if not exist "%~dp0launcher.py" goto :launcher_error\r\n'
+        '\r\n'
+        '"%~dp0runtime\\python.exe" "%~dp0launcher.py"\r\n'
+        'set "RC=%ERRORLEVEL%"\r\n'
+        'popd\r\n'
+        'if "%RC%"=="0" exit /b 0\r\n'
+        '\r\n'
+        'echo.\r\n'
+        'echo ERROR: Program stopped with exit code %RC%.\r\n'
+        'echo Check the logs folder.\r\n'
+        'pause\r\n'
+        'exit /b %RC%\r\n'
+        '\r\n'
+        ':folder_error\r\n'
+        'echo ERROR: Cannot open the program folder.\r\n'
+        'pause\r\n'
+        'exit /b 1\r\n'
+        '\r\n'
+        ':runtime_error\r\n'
+        'echo ERROR: runtime\\python.exe was not found.\r\n'
+        'echo Re-extract the entire ZIP before running this file.\r\n'
+        'pause\r\n'
+        'exit /b 1\r\n'
+        '\r\n'
+        ':launcher_error\r\n'
+        'echo ERROR: launcher.py was not found.\r\n'
+        'echo Re-extract the entire ZIP before running this file.\r\n'
+        'pause\r\n'
+        'exit /b 1\r\n'
     )
+    (target / "RUN.cmd").write_text(content, encoding="ascii", newline="")
+    (target / "start_windows.bat").write_text('@echo off\r\ncall "%~dp0RUN.cmd"\r\n', encoding="ascii", newline="")
+    (target / "실행_개인출장여비정산.bat").write_text('@echo off\r\ncall "%~dp0RUN.cmd"\r\n', encoding="ascii", newline="")
 
 
 def make_zip(folder: Path) -> Path:
