@@ -1,24 +1,35 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+pushd "%~dp0"
+if errorlevel 1 goto :folder_error
 
-set "PYTHON_EXE="
-if exist "%~dp0runtime\python.exe" set "PYTHON_EXE=%~dp0runtime\python.exe"
-if not defined PYTHON_EXE where py >nul 2>nul && set "PYTHON_EXE=py -3"
-if not defined PYTHON_EXE where python >nul 2>nul && set "PYTHON_EXE=python"
+if not exist "%~dp0runtime\python.exe" goto :runtime_error
+if not exist "%~dp0launcher.py" goto :launcher_error
 
-if not defined PYTHON_EXE (
-  echo [오류] Python 실행환경을 찾을 수 없습니다.
-  echo 포터블 배포판에서는 runtime\python.exe가 포함되어야 합니다.
-  pause
-  exit /b 1
-)
+"%~dp0runtime\python.exe" "%~dp0launcher.py"
+set "RC=%ERRORLEVEL%"
+popd
+if "%RC%"=="0" exit /b 0
 
-%PYTHON_EXE% launcher.py
-if errorlevel 1 (
-  echo.
-  echo 프로그램 실행 중 오류가 발생했습니다. logs 폴더를 확인해 주세요.
-  pause
-)
+echo.
+echo ERROR: Program stopped with exit code %RC%.
+echo Check the logs folder.
+pause
+exit /b %RC%
 
-endlocal
+:folder_error
+echo ERROR: Cannot open the program folder.
+pause
+exit /b 1
+
+:runtime_error
+echo ERROR: runtime\python.exe was not found.
+echo Re-extract the entire ZIP before running this file.
+pause
+exit /b 1
+
+:launcher_error
+echo ERROR: launcher.py was not found.
+echo Re-extract the entire ZIP before running this file.
+pause
+exit /b 1
